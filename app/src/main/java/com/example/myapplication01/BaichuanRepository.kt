@@ -85,24 +85,26 @@ object BaichuanRepository {
         onSuccess: (() -> Unit)? = null,
         onError: ((String) -> Unit)? = null
     ) {
+        // 防止重複發布與優先覆蓋機制：以最後一筆為優先，跨所有分片移除該發布者過去的所有舊卡片
+        if (card.publisher_device_id != "SYSTEM_ADMIN" && !card.is_test_only && card.publisher_device_id.isNotBlank()) {
+            for ((_, categoryMap) in partitionedCards) {
+                val keysToRemove = mutableListOf<String>()
+                for ((key, existingCard) in categoryMap) {
+                    if (existingCard.publisher_device_id == card.publisher_device_id) {
+                        keysToRemove.add(key)
+                    }
+                }
+                keysToRemove.forEach { categoryMap.remove(it) }
+            }
+        }
+
         val catCode = card.category_code
         val categoryMap = partitionedCards.getOrPut(catCode) { ConcurrentHashMap() }
 
-        // 先刪除本地舊記錄（官方節點與測試卡片除外），確保無任何殘留碎屑
-        if (card.publisher_device_id != "SYSTEM_ADMIN" && !card.is_test_only) {
-            val keysToRemove = mutableListOf<String>()
-            for ((key, existingCard) in categoryMap) {
-                if (existingCard.publisher_device_id == card.publisher_device_id && existingCard.drawer_type == card.drawer_type) {
-                    keysToRemove.add(key)
-                }
-            }
-            keysToRemove.forEach { categoryMap.remove(it) }
-        }
-
-        // 全新寫入最新卡片
+        // 全新寫入最新卡片 (以最後一筆為優先)
         categoryMap[card.card_id] = card
         
-        // 僅供展示測試不寫入遠端永久資料庫
+        // 本地與後端倉庫同步生效
         if (!card.is_test_only) {
             BaichuanApiService.publishCard(card, {
                 onSuccess?.invoke()
@@ -219,8 +221,8 @@ object BaichuanRepository {
         reasonSet.add(reporterId)
         updatedReportsByReason[reason] = reasonSet
         
-        // 4. 單一卡片在12小時內累積達 3 次不同 ID 則隱藏
-        val isAutoHidden = updatedReporters.size >= MAX_REPORT_THRESHOLD
+        // 4. 針對「同一個檢舉選項」在 12 小時內累積達 3 次則自動觸發隱藏
+        val isAutoHidden = reasonSet.size >= MAX_REPORT_THRESHOLD
         
         val updatedCard = card.copy(
             reporter_ids = updatedReporters,
@@ -230,7 +232,11 @@ object BaichuanRepository {
         
         partitionedCards[catCode]?.put(cardId, updatedCard)
         
-        // --- 提交檢舉至遠端風控系統 ---
+        if (isAutoHidden) {
+            CardJsonExceptionHandler.quarantineReportedCard(updatedCard, reason, reasonSet.size)
+        }
+
+        // --- 提交檢舉至遠端風控系統與後台人工審核佇列 ---
         BaichuanApiService.reportCard(cardId, reason, reporterId)
         
         return if (isAutoHidden) {

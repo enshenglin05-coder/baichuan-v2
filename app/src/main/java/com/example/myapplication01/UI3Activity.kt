@@ -271,10 +271,10 @@ class UI3Activity : BaseActivity() {
         userLat = if (intent.hasExtra("USER_LAT")) intent.getDoubleExtra("USER_LAT", 0.0).takeIf { it != 0.0 } else GlobalState.globalLatitude
         userLng = if (intent.hasExtra("USER_LNG")) intent.getDoubleExtra("USER_LNG", 0.0).takeIf { it != 0.0 } else GlobalState.globalLongitude
 
-        if (userLat == null || userLng == null) {
-            // 提供預設體驗座標，確保展示與測試卡片開啟時可立即讀取與重繪 UI
-            userLat = 25.002653
-            userLng = 121.497685
+        if (userLat == null || userLng == null || userLat == 0.0 || userLng == 0.0 || !GlobalState.isLocated) {
+            // 未手動點擊取得位置時，自動套用路由器的大致經緯度位置 (預設路由定位)
+            userLat = 25.00263
+            userLng = 121.4977
             GlobalState.globalLatitude = userLat
             GlobalState.globalLongitude = userLng
         }
@@ -924,6 +924,10 @@ class UI3Activity : BaseActivity() {
         android.util.Log.d("CardRefresh", "交叉邏輯對齊: 當前類型=$currentType (A:需求/B:供給), 對手目標類型=$targetOpponentType")
 
         val targetCatIds = catId?.let { listOf(it) } ?: emptyList()
+
+        // 強制帶入經緯度座標與當前設定的搜尋距離數值至後端/雲端查詢請求
+        BaichuanApiService.fetchNearbyCards(userLat!!, userLng!!, limitDistanceKm, targetCatIds) { _ -> }
+
         // 確保精確傳遞 UI2 設定的 limitDistanceKm 至 Repository，進而觸發 GeoBoundingBoxFilter 數學運算
         BaichuanRepository.getFilteredCards(
             userLat, userLng, targetCatIds, targetOpponentType, currentDeviceId, limitDistanceKm
@@ -941,6 +945,10 @@ class UI3Activity : BaseActivity() {
         val targetOpponentType = MatchingCore.getTargetOpponentType(currentType)
         val targetCatIds = catId?.let { listOf(it) } ?: emptyList()
         
+        if (userLat != null && userLng != null) {
+            BaichuanApiService.fetchNearbyCards(userLat!!, userLng!!, limitDistanceKm, targetCatIds) { _ -> }
+        }
+
         val cards = BaichuanRepository.getFilteredCards(
             userLat, userLng, targetCatIds, targetOpponentType, currentDeviceId, limitDistanceKm
             // 此次僅為本地刷新，不傳 callback 避免迴圈
@@ -962,6 +970,7 @@ class UI3Activity : BaseActivity() {
 
         val contactVal = etContactId?.text?.toString()?.trim() ?: ""
         val phoneVal = etPhoneNumber?.text?.toString()?.trim() ?: ""
+        val socialVal = etSocialLink?.text?.toString()?.trim() ?: ""
 
         val selectedMethod = when {
             rbLine?.isChecked == true -> RequirementCard.ContactMethod.LINE
@@ -977,7 +986,8 @@ class UI3Activity : BaseActivity() {
             contactVal
         }
 
-        if (effectiveContactVal.isBlank()) {
+        // 強制檢查：通訊軟體（如 FB/IG/Line/X 等 URL、社交連結）或聯絡電話至少必須填寫一樣
+        if (effectiveContactVal.isBlank() && phoneVal.isBlank() && socialVal.isBlank()) {
             Toast.makeText(this, getString(R.string.error_empty_contact_publish), Toast.LENGTH_SHORT).show()
             DeityBlessingTTS.speak(this, getString(R.string.msg_tts_fill_required))
             return

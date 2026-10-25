@@ -227,6 +227,11 @@ class UI1Activity : BaseActivity() {
             finish()
         }
 
+        btnExit.setOnLongClickListener {
+            AdminReviewDialogManager.showAdminReviewDialog(this)
+            true
+        }
+
         btnLocation.setOnClickListener {
             checkPermissionAndFetchLocation()
         }

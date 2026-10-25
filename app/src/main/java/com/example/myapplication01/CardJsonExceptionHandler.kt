@@ -162,6 +162,19 @@ object CardJsonExceptionHandler {
     }
 
     /**
+     * 將被檢舉達門檻的卡片帶入人工審核隔離區 (支援同選項 3 次自動隱藏後台同步)
+     */
+    fun quarantineReportedCard(card: RequirementCard, reason: String, reportCount: Int) {
+        quarantineExceptionRecord(
+            recordId = card.card_id,
+            rawJson = gson.toJson(card),
+            errorCount = 0,
+            reportCount = reportCount,
+            reason = "同選項檢舉次數累計達 $reportCount 次 (檢舉選項: $reason)"
+        )
+    }
+
+    /**
      * 取得所有待人工審核/凍結的紀錄
      */
     fun getQuarantinedRecords(): List<QuarantinedCardRecord> {

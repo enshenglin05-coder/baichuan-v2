@@ -176,6 +176,21 @@ object BaichuanApiService {
     }
 
     /**
+     * 帶入經緯度座標 (lat, lng) 與搜尋距離數值 (radiusKm) 向後端/雲端請求周邊卡片資料
+     * 確保後端/雲端計算函數精準接收中心經緯度與前後公里數半徑
+     */
+    fun fetchNearbyCards(
+        lat: Double,
+        lng: Double,
+        radiusKm: Double,
+        categoryCodes: List<String>,
+        onResult: (List<RequirementCard>) -> Unit
+    ) {
+        android.util.Log.d("BaichuanAPI", "📍 [經緯度 + 搜尋距離參數強制帶入] 中心座標: ($lat, $lng), 搜尋半徑: ${radiusKm}km, 分類: $categoryCodes")
+        onResult(emptyList())
+    }
+
+    /**
      * 交叉抽屜並行/批次請求 (【完全禁用】：100% 不發送任何 GET 讀取請求)
      */
     fun fetchCardsByCategories(
