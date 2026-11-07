@@ -1,0 +1,21 @@
+{
+  "version": 2,
+  "routes": [
+    {
+      "src": "/api/cards/?",
+      "dest": "/api/cards.js"
+    },
+    {
+      "src": "/cards/?",
+      "dest": "/api/cards.js"
+    },
+    {
+      "src": "/api/reports/?",
+      "dest": "/api/cards.js"
+    },
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/cards.js"
+    }
+  ]
+}

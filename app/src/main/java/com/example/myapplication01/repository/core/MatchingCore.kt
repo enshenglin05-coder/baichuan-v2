@@ -19,25 +19,23 @@ object MatchingCore {
     }
 
     /**
-     * 88 格矩陣驗證 (1-1 ~ 12-8)
-     * 嚴格遵循草圖直向排列規則：
-     * 12 個大類，每個大類下 8 個小項（1-1~1-8, 2-1~2-8... 12-1~12-8）
+     * 12大項 97格矩陣驗證 (0-0 及 1-1 ~ 12-8)
      */
     fun validateCategoryCode(code: String): Boolean {
+        if (code == "0-0") return true
         val pattern = Regex("^([1-9]|10|11|12)-[1-8]$")
         return pattern.matches(code)
     }
 
     /**
-     * 88 格格位索引轉換：將 11x8 結構轉換為內部獨立索引值
-     * 滿足「兩排直向排列」需求：大類編號為 x，小項編號為 y (x=1..11, y=1..8)
+     * 97格格位索引轉換
      */
     fun getGridIndex(code: String): Int {
+        if (code == "0-0") return 0
         val parts = code.split("-")
         if (parts.size != 2) return -1
         val x = parts[0].toIntOrNull() ?: 1
         val y = parts[1].toIntOrNull() ?: 1
-        // 計算直向偏移：(x-1) * 8 + y
         return (x - 1) * 8 + y
     }
 

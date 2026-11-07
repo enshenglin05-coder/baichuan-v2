@@ -100,11 +100,11 @@ class AiModalityActivity : BaseActivity() {
         tvTitle.text = dialogTitle
 
         val instructionText = when (langCode) {
-            "en" -> "Tap the 'Open' button on the right to copy packaged draft and launch AI application."
-            "ja" -> "右側の「開く」ボタンをタップして、パッケージ化されたドラフトをコピーし、AIアプリケーションを起動します。"
-            "ko" -> "오른쪽의 '열기' 버튼을 탭하여 패키지된 초안을 복사하고 AI 애플리케이션을 실행하세요."
-            "vi" -> "Nhấn nút 'Mở' ở bên phải để sao chép bản nháp đóng gói và khởi ứng dụng AI."
-            else -> "請點擊右側「開啟」按鈕，將一鍵打包資料帶入剪貼簿並啟動對應 AI 應用程式"
+            "en" -> "Tap the 'Open' button on the right to launch the AI application with an empty input buffer for manual paste."
+            "ja" -> "右側の「開く」ボタンをタップして、空の入力枠で AI アプリケーションを起動し、手動で貼り付けます。"
+            "ko" -> "오른쪽 '열기' 버튼을 눌러 빈 대화 상자로 AI 애플리케이션을 실행하고 수동으로 붙여넣으세요."
+            "vi" -> "Nhấn nút 'Mở' ở bên phải để mở ứng dụng AI với ô nhập liệu trống, sẵn sàng dán thủ công."
+            else -> "請點擊右側「開啟」按鈕跳轉至 AI 應用程式，對話框將保持完全空白，以利手動貼上草稿"
         }
         val resourceHeaderTitle = when (langCode) {
             "en" -> "Resource Items in Page"
@@ -291,15 +291,42 @@ class AiModalityActivity : BaseActivity() {
                 }
                 setOnClickListener {
                     try {
-                        val packageData = "${modality.title}\n${modality.subtitle}\n支援聯絡: ${modality.contactPhone}"
-                        ContactUtils.copyToClipboard(this@AiModalityActivity, packageData)
+                        // 【絕對修正規範】：1. 徹底移除任何文字帶入 (Zero-Text Buffer)，保持 100% 純淨空白
+                        val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("", ""))
 
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(modality.jumpUrl)).apply {
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        // 2. 本地端 App (Package) 優先跳轉策略
+                        val packageName = when (modality.id) {
+                            "ChatGPT" -> "com.openai.chatgpt"
+                            "GEMINI" -> "com.google.android.apps.bard"
+                            "CLAUDE" -> "com.anthropic.claude"
+                            "GROK" -> "com.x.android"
+                            else -> null
                         }
-                        startActivity(intent)
+
+                        var launched = false
+                        if (packageName != null) {
+                            try {
+                                val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+                                if (launchIntent != null) {
+                                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    startActivity(launchIntent)
+                                    launched = true
+                                }
+                            } catch (e: Exception) {
+                                // Fallback below
+                            }
+                        }
+
+                        if (!launched) {
+                            // 第二順位 (Fallback): 乾淨網頁連結跳轉 (絕對無 q= 或 EXTRA_TEXT)
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(modality.jumpUrl)).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            startActivity(intent)
+                        }
                     } catch (e: Exception) {
-                        Toast.makeText(this@AiModalityActivity, "無法開啟應用或複製資料", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@AiModalityActivity, "無法開啟 AI 應用程式", Toast.LENGTH_SHORT).show()
                     }
                 }
             }

@@ -9,6 +9,7 @@ open class BaseActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         BaichuanApiService.init(this)
+        GlobalTtsPlayer.init(this)
     }
 
     override fun startActivity(intent: Intent?) {

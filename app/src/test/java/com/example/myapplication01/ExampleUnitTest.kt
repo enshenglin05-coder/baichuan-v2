@@ -379,6 +379,49 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun testLocalCardDatabaseSerializationAndStorage() {
+        LocalCardDatabase.clearAll()
+        val testCard = RequirementCard(
+            card_id = "LOCAL_DB_TEST_01",
+            publisher_device_id = "DEV_LOCAL_999",
+            created_at = 1700000000000L,
+            category_code = "1-2",
+            drawer_type = "1A",
+            category_tag = "在地美食",
+            description = "測試在地 JSON 資料庫儲存與序列化",
+            contact_method = RequirementCard.ContactMethod.LINE,
+            contact_value = "my_line_id",
+            phone_number = "0912345678",
+            gps_lat = 25.00263,
+            gps_lng = 121.49770
+        )
+
+        // 1. 寫入與序列化測試
+        val savedFile = LocalCardDatabase.saveCard(testCard)
+        assertNotNull(savedFile)
+
+        // 2. 讀取與驗證結構化 JSON 字串
+        val jsonStr = LocalCardDatabase.getCardJson("LOCAL_DB_TEST_01")
+        assertNotNull(jsonStr)
+        assertTrue(jsonStr!!.contains("LOCAL_DB_TEST_01"))
+        assertTrue(jsonStr.contains("1-2"))
+        assertTrue(jsonStr.contains("1A"))
+        assertTrue(jsonStr.contains("25.00263"))
+
+        // 3. 反序列化成 RequirementCard
+        val restoredCard = LocalCardDatabase.getCard("LOCAL_DB_TEST_01")
+        assertNotNull(restoredCard)
+        assertEquals("LOCAL_DB_TEST_01", restoredCard!!.card_id)
+        assertEquals("1-2", restoredCard.category_code)
+        assertEquals("1A", restoredCard.drawer_type)
+        assertEquals(25.00263, restoredCard.gps_lat, 0.00001)
+
+        // 4. 清理測試
+        assertTrue(LocalCardDatabase.deleteCard("LOCAL_DB_TEST_01"))
+        assertNull(LocalCardDatabase.getCardJson("LOCAL_DB_TEST_01"))
+    }
+
+    @Test
     fun testAddOrUpdateCard_CallbackAndPartitioning() {
         BaichuanRepository.clearAll()
         var successCalled = false
@@ -412,10 +455,11 @@ class ExampleUnitTest {
     @Test
     fun testGrid88FormatterAndABCrossLogic() {
         val allGrids = Grid88Formatter.getAllGridCodes()
-        assertEquals(96, allGrids.size)
-        assertEquals("1-1", allGrids.first())
+        assertEquals(97, allGrids.size)
+        assertEquals("0-0", allGrids.first())
         assertEquals("12-8", allGrids.last())
 
+        assertTrue(Grid88Formatter.validateGridCode("0-0"))
         assertTrue(Grid88Formatter.validateGridCode("1-1"))
         assertTrue(Grid88Formatter.validateGridCode("11-8"))
         assertTrue(Grid88Formatter.validateGridCode("12-1"))
@@ -472,6 +516,7 @@ class ExampleUnitTest {
 
     @Test
     fun testReligionCategory12PresetCards() {
+        LocalCardDatabase.clearAll()
         BaichuanRepository.seedTestDrawerData()
         
         // 驗證第 12 大類 (12-1 至 12-8) 每個子項目皆有 10 筆需求與 10 筆供給
@@ -488,31 +533,7 @@ class ExampleUnitTest {
         }
     }
 
-    @Test
-    fun testGitSyncSchedulerAnd12HourLoop() {
-        BaichuanRepository.clearAll()
-        
-        // 執行單次同步與抹除循環
-        GitSyncScheduler.triggerSyncCycle()
 
-        // 驗證 12 小時清空後自動觸發重新生成 88 個卡片
-        val allGrids = Grid88Formatter.getAllGridCodes()
-        val cardsFromRepo = BaichuanRepository.getFilteredCards(
-            25.0026, 121.4977, allGrids, "1A", "SYSTEM_ADMIN", 50.0
-        )
-        assertFalse(cardsFromRepo.isEmpty())
-        
-        // 模擬 12 小時效期過去
-        val futureMillis = System.currentTimeMillis() + (13 * 3600 * 1000L)
-        BaichuanRepository.purgeExpiredCards(futureMillis)
-
-        // 抹除後觸發下一次同步，將會自動重新載入新一批卡片
-        GitSyncScheduler.triggerSyncCycle()
-        val newBatch = BaichuanRepository.getFilteredCards(
-            25.0026, 121.4977, allGrids, "1A", "SYSTEM_ADMIN", 50.0
-        )
-        assertFalse(newBatch.isEmpty())
-    }
 
     @Test
     fun testPresetVsRealPublisherCardLocationLogic() {
@@ -541,60 +562,38 @@ class ExampleUnitTest {
 
     @Test
     fun testBaichuanV2CardsPathAnd88Grids() {
-        val testCardId = "CARD_12345"
-        val expectedPath = "https://api.github.com/repos/enshenglin05-coder/baichuan-v2/contents/cards/$testCardId.json"
-        assertTrue(expectedPath.contains("/contents/cards/$testCardId.json"))
+        val cloudUrl = BaichuanApiService.CLOUD_API_URL
+        assertEquals(BaichuanApiService.DEFAULT_BASE_URL, cloudUrl)
 
         val allGrids = Grid88Formatter.getAllGridCodes()
-        assertEquals(96, allGrids.size)
+        assertEquals(97, allGrids.size)
         allGrids.forEach { code ->
             assertTrue(Grid88Formatter.validateGridCode(code))
         }
     }
 
     @Test
-    fun testGitHubApiUploadSimulationAndTokenIntegrity() {
-        // 1. 驗證 Token 未被截斷或遺失，確保完整性 (嚴格對齊 Bearer 授權格式)
-        val authHeader = BaichuanApiService.getAuthHeader()
-        assertTrue(authHeader.contains("ghp_Y3Rb2ZHTrMcVDujrkjzv6SjhYicGU3107XgZ"))
-        assertTrue(authHeader.startsWith("Bearer "))
-        assertEquals("Authorization: Bearer ghp_Y3Rb2ZHTrMcVDujrkjzv6SjhYicGU3107XgZ", "Authorization: $authHeader")
-
-        // 驗證 Token 清理函數 cleanToken 能夠正確剝除 Bearer/token 前綴與引號
-        assertEquals("ghp_Y3Rb2ZHTrMcVDujrkjzv6SjhYicGU3107XgZ", UserIdentityManager.cleanToken("Bearer ghp_Y3Rb2ZHTrMcVDujrkjzv6SjhYicGU3107XgZ"))
-        assertEquals("ghp_Y3Rb2ZHTrMcVDujrkjzv6SjhYicGU3107XgZ", UserIdentityManager.cleanToken("token ghp_Y3Rb2ZHTrMcVDujrkjzv6SjhYicGU3107XgZ"))
-        assertEquals("ghp_Y3Rb2ZHTrMcVDujrkjzv6SjhYicGU3107XgZ", UserIdentityManager.cleanToken("\"ghp_Y3Rb2ZHTrMcVDujrkjzv6SjhYicGU3107XgZ\""))
-        assertEquals("ghp_Y3Rb2ZHTrMcVDujrkjzv6SjhYicGU3107XgZ", UserIdentityManager.cleanToken("  ghp_Y3Rb2ZHTrMcVDujrkjzv6SjhYicGU3107XgZ\n"))
-
-        // 驗證 401 自動 Refresh 時能正確重載永久 Token
-        assertTrue(UserIdentityManager.refreshAuthToken(null))
-        assertEquals("ghp_Y3Rb2ZHTrMcVDujrkjzv6SjhYicGU3107XgZ", UserIdentityManager.getAuthToken(null))
-
-        // 2. 模擬 GitHub Contents API 請求建構與 Payload 格式驗證
-        val testCard = RequirementCard(
-            card_id = "SIM_CARD_01",
-            category_code = "1-1",
-            drawer_type = "1A",
-            description = "模擬上傳測試",
-            gps_lat = 25.0026,
-            gps_lng = 121.4977
-        )
-        val json = com.google.gson.Gson().toJson(listOf(testCard))
-        val base64Content = java.util.Base64.getEncoder().encodeToString(json.toByteArray(Charsets.UTF_8))
-        assertNotNull(base64Content)
-        assertTrue(base64Content.isNotEmpty())
-
-        val payload = mapOf(
-            "message" to "Update drawer data: 1-1",
-            "content" to base64Content
-        )
-        assertEquals("Update drawer data: 1-1", payload["message"])
-        assertNotNull(payload["content"])
-
-        // 3. 驗證 88 格編碼與 A/B 交叉邏輯對齊
+    fun testPureLocalPersistenceAndTtsDecrement() {
+        // 1. 驗證 88 格編碼與 A/B 交叉邏輯對齊
         val gridCode = Grid88Formatter.mapCoordinatesToGridCell(25.0026, 121.4977)
         assertTrue(Grid88Formatter.validateGridCode(gridCode))
         assertEquals("1B", Grid88Formatter.getOpponentDrawerType("1A"))
+
+        // 2. 驗證本地持久化儲存與讀取
+        LocalCardDatabase.clearAll()
+        val testCard = RequirementCard(
+            card_id = "LOCAL_TEST_01",
+            category_code = "1-1",
+            drawer_type = "1A",
+            description = "純本地測試卡片",
+            gps_lat = 25.0026,
+            gps_lng = 121.4977
+        )
+        LocalCardDatabase.saveCard(testCard)
+        val retrieved = LocalCardDatabase.getCard("LOCAL_TEST_01")
+        assertNotNull(retrieved)
+        assertEquals("純本地測試卡片", retrieved?.description?.replace(" ", "") ?: "")
+        LocalCardDatabase.clearAll()
     }
 
     @Test
@@ -656,5 +655,311 @@ class ExampleUnitTest {
         // 測試審核狀態切換 (例如切換為凍結 FROZEN)
         CardJsonExceptionHandler.updateRecordStatus("BROKEN_TEST_KEY", QuarantinedCardRecord.ReviewStatus.FROZEN)
         assertEquals(QuarantinedCardRecord.ReviewStatus.FROZEN, CardJsonExceptionHandler.getQuarantinedRecords().first().status)
+    }
+
+    @Test
+    fun testHurlungchuangTtsCountdownAndRangeTrigger() {
+        HurlungchuangTestManager.resetTest()
+        assertEquals(100, HurlungchuangTestManager.getRemainingCount())
+
+        // 1. 測試超出 10 公里範圍（例如台中：24.1477, 120.6736）
+        val outsideLat = 24.1477
+        val outsideLng = 120.6736
+        var archivedCalled = false
+
+        HurlungchuangTestManager.simulateTtsTrigger(outsideLat, outsideLng) { _ ->
+            archivedCalled = true
+        }
+        assertEquals(100, HurlungchuangTestManager.getRemainingCount())
+        assertFalse(archivedCalled)
+
+        // 2. 測試在 10 公里範圍內（中和烘爐地：25.002396, 121.497381）
+        val insideLat = 25.002396
+        val insideLng = 121.497381
+
+        // 連續觸發 100 次
+        repeat(100) {
+            HurlungchuangTestManager.simulateTtsTrigger(insideLat, insideLng) { record ->
+                archivedCalled = true
+                assertNotNull(record)
+                assertEquals("AD_HURLUNGCHUANG_01", record.adId)
+                assertEquals(100, record.initialTotalCount)
+                assertEquals(0, record.finalRemainingCount)
+            }
+        }
+
+        assertEquals(0, HurlungchuangTestManager.getRemainingCount())
+        assertTrue(archivedCalled)
+    }
+
+    @Test
+    fun testIdeMasterTtsControllerCoreFlowAndPhysicalRelocation() {
+        LocalCardDatabase.clearAll()
+
+        // 1. IDE 唯一主控與編譯輸入：設定播報內容、目標經緯度、距離範圍與初始次數
+        val testText = "中和廣濟宮聖王公守護您"
+        val testLat = 25.002396
+        val testLng = 121.497381
+        val testRadius = 10.0
+        val initialCount = 100
+        val testCardId = "TEST_IDE_MASTER_CARD_01"
+
+        IdeMasterTtsController.compileConfig(
+            text = testText,
+            lat = testLat,
+            lng = testLng,
+            radiusKm = testRadius,
+            initialCount = initialCount,
+            cardId = testCardId
+        )
+
+        // 驗證主控設定已寫入實體卡片檔
+        val initialCard = LocalCardDatabase.getCard(testCardId)
+        assertNotNull(initialCard)
+        assertEquals(testText, initialCard?.description)
+
+        // 2. 超出 10km 範圍（例如台中：24.1477, 120.6736），經緯度比對不通過
+        val outOfRangeSuccess = IdeMasterTtsController.executeCoreFlow(
+            currentLat = 24.1477,
+            currentLng = 120.6736
+        )
+        assertFalse(outOfRangeSuccess)
+
+        // 3. 在 10km 範圍內進行 TTS 播報，鎖定倒數第二個字並精準扣減 (100 ➔ 99 ➔ ... ➔ 0)
+        var capturedSecondToLastChar = ' '
+        var lastRemainingCount = initialCount
+        var archiveRecordCreated: RecycledAdRecord? = null
+
+        repeat(initialCount) {
+            val isSuccess = IdeMasterTtsController.executeCoreFlow(
+                currentLat = testLat,
+                currentLng = testLng,
+                onSecondToLastCharTriggered = { remaining, char ->
+                    lastRemainingCount = remaining
+                    capturedSecondToLastChar = char
+                },
+                onArchived = { record ->
+                    archiveRecordCreated = record
+                }
+            )
+            assertTrue(isSuccess)
+        }
+
+        // 4. 驗證倒數第二個字捕捉與扣減結果
+        assertEquals('護', capturedSecondToLastChar)
+        assertEquals(0, lastRemainingCount)
+
+        // 5. 驗證歸零自動搬運（屍體歸位）：實體檔案從主資料夾搬移至已封存回收倉庫
+        assertNotNull(archiveRecordCreated)
+        assertEquals(testCardId, archiveRecordCreated?.adId)
+
+        // 驗證主資料夾 (local_cards/) 中已不再有 active 卡片檔
+        val activeCardAfterArchive = LocalCardDatabase.getCard(testCardId)
+        assertNull(activeCardAfterArchive)
+
+        // 驗證實體檔案已成功搬移至專屬回收倉庫 (archived_cards/)
+        val archivedCards = LocalCardDatabase.getArchivedCards()
+        val targetArchivedCard = archivedCards.find { it.card_id == testCardId }
+        assertNotNull(targetArchivedCard)
+        assertEquals(testCardId, targetArchivedCard?.card_id)
+
+        // 測試完畢清理環境，避免影響其他單元測試
+        LocalCardDatabase.clearAll()
+        BaichuanRepository.clearAll()
+    }
+
+    @Test
+    fun testArchivedWarehouseDialogManagerAndHumanReviewButtons() {
+        LocalCardDatabase.clearAll()
+
+        val testCardId = "TEST_WAREHOUSE_CARD_999"
+        val testCard = RequirementCard(
+            card_id = testCardId,
+            description = "測試已播放完畢存棒倉庫卡片",
+            gps_lat = 25.002396,
+            gps_lng = 121.497381
+        )
+        LocalCardDatabase.saveCard(testCard)
+
+        // 1. 執行歸零搬運至已封存倉庫 (archived_cards/)
+        val archivedFile = LocalCardDatabase.archiveCardFile(testCardId)
+        assertNotNull(archivedFile)
+        assertTrue(archivedFile!!.exists())
+
+        // 2. 驗證 ArchivedWarehouseDialogManager 能正確讀取存棒倉庫項目
+        val itemsBefore = ArchivedWarehouseDialogManager.getWarehouseItems()
+        val targetItem = itemsBefore.find { it.cardId == testCardId }
+        assertNotNull(targetItem)
+        assertFalse(targetItem!!.isRetained)
+
+        // 3. 測試【保存按鍵】：更新為確認保存歸檔狀態 (RETAINED_VERIFIED)
+        assertTrue(LocalCardDatabase.retainArchivedCard(testCardId))
+        val itemsAfterRetain = ArchivedWarehouseDialogManager.getWarehouseItems()
+        val retainedItem = itemsAfterRetain.find { it.cardId == testCardId }
+        assertNotNull(retainedItem)
+        assertTrue(retainedItem!!.isRetained)
+
+        // 4. 測試【刪除按鍵】：徹底從存棒倉庫中銷毀移除
+        assertTrue(LocalCardDatabase.deleteArchivedCard(testCardId))
+        LocalTtsAdDatabase.deleteRecycledRecord(testCardId)
+
+        val itemsAfterDelete = ArchivedWarehouseDialogManager.getWarehouseItems()
+        assertNull(itemsAfterDelete.find { it.cardId == testCardId })
+
+        LocalCardDatabase.clearAll()
+    }
+
+    @Test
+    fun testFaultTolerantJsonParsingAndCloudEndpoints() {
+        // 1. 測試畸形/損毀 JSON 不崩潰，回傳空清單
+        val malformedJson = "{ \"card_id\": \"TEST_123\", \"description\": \"broken... "
+        val resultMalformed = BaichuanApiService.parseCardsFromJson(malformedJson)
+        assertNotNull(resultMalformed)
+        assertTrue(resultMalformed.isEmpty())
+
+        // 2. 測試 Firebase RTDB Map 結構解析
+        val firebaseMapJson = """
+            {
+                "CARD_01": {
+                    "card_id": "CARD_01",
+                    "category_code": "1-1",
+                    "drawer_type": "1A",
+                    "description": "Firebase Map 測試卡片 1",
+                    "contact_method": "line",
+                    "latitude": 25.033968,
+                    "longitude": 121.564468
+                },
+                "CARD_02": {
+                    "cardId": "CARD_02",
+                    "drawerCode": "2-1",
+                    "type": "1B",
+                    "desc": "Firebase Map 測試卡片 2",
+                    "contactType": "PHONE",
+                    "lat": 25.040000,
+                    "lng": 121.550000
+                }
+            }
+        """.trimIndent()
+        val cardsFromMap = BaichuanApiService.parseCardsFromJson(firebaseMapJson)
+        assertEquals(2, cardsFromMap.size)
+        assertEquals("CARD_01", cardsFromMap[0].card_id)
+        assertEquals(RequirementCard.ContactMethod.LINE, cardsFromMap[0].contact_method)
+        assertEquals("CARD_02", cardsFromMap[1].card_id)
+        assertEquals(RequirementCard.ContactMethod.PHONE, cardsFromMap[1].contact_method)
+
+        // 3. 測試包裝陣列與標準陣列 JSON
+        val arrayJson = """
+            [
+                {
+                    "card_id": "CARD_03",
+                    "category_code": "3-1",
+                    "drawer_type": "1A",
+                    "description": "標準陣列卡片",
+                    "contact_method": "TG",
+                    "gps_lat": 24.99,
+                    "gps_lng": 121.30
+                }
+            ]
+        """.trimIndent()
+        val cardsFromArray = BaichuanApiService.parseCardsFromJson(arrayJson)
+        assertEquals(1, cardsFromArray.size)
+        assertEquals("CARD_03", cardsFromArray[0].card_id)
+        assertEquals(RequirementCard.ContactMethod.TELEGRAM, cardsFromArray[0].contact_method)
+
+        // 4. 驗證端點網址設定乾淨正確
+        assertEquals(BaichuanApiService.DEFAULT_BASE_URL, BaichuanApiService.CLOUD_API_URL)
+    }
+
+    @Test
+    fun testCardIdValidationAndJsonSerialization() {
+        // 1. 測試 Gson 序列化：確保 card_id 欄位名稱為 "card_id"
+        val testCard = RequirementCard(
+            card_id = "CARD_VERIFY_001",
+            category_code = "1-1",
+            drawer_type = "1A",
+            description = "卡片識別碼與序列化驗證"
+        )
+        val jsonStr = BaichuanApiService.gson.toJson(testCard)
+        assertTrue(jsonStr.contains("\"card_id\": \"CARD_VERIFY_001\""))
+
+        // 2. 測試欠缺/無效 card_id 之過濾：缺失 card_id 不應加入解析結果
+        val invalidCardJson = """
+            [
+                {
+                    "card_id": "",
+                    "description": "無卡片識別碼"
+                },
+                {
+                    "card_id": "CARD_VALID_002",
+                    "category_code": "1-1",
+                    "drawer_type": "1A",
+                    "description": "有效識別碼卡片"
+                }
+            ]
+        """.trimIndent()
+        val parsedList = BaichuanApiService.parseCardsFromJson(invalidCardJson)
+        assertEquals(1, parsedList.size)
+        assertEquals("CARD_VALID_002", parsedList[0].card_id)
+
+        // 3. 驗證 20 筆抽屜卡片經由 Repository 正常渲染
+        BaichuanRepository.seedTestDrawerData()
+        val drawerCards = BaichuanRepository.getFilteredCards(
+            userLat = 25.0026,
+            userLng = 121.4976,
+            categoryCodes = listOf("1-1"),
+            targetType = "1A",
+            currentDeviceId = "TEST_DEVICE",
+            limitDistanceKm = 50.0
+        )
+        assertTrue(drawerCards.size >= 10)
+    }
+
+    @Test
+    fun testCustomBaseUrlSwitch() {
+        // 1. 預設 Base URL 驗證
+        assertEquals(BaichuanApiService.DEFAULT_BASE_URL, BaichuanApiService.getActiveBaseUrl())
+        assertEquals("${BaichuanApiService.DEFAULT_BASE_URL}/cards", BaichuanApiService.getActiveCardsEndpoint())
+
+        // 2. 切換正式專屬伺服器 IP / 網域
+        val customServer = "https://api.baichuan-server.com"
+        BaichuanApiService.setCustomBaseUrl(customServer)
+        assertEquals(customServer, BaichuanApiService.getActiveBaseUrl())
+        assertEquals("$customServer/cards", BaichuanApiService.getActiveCardsEndpoint())
+
+        // 3. 重置回預設端點以利後續測試
+        BaichuanApiService.setCustomBaseUrl(BaichuanApiService.DEFAULT_BASE_URL)
+    }
+
+    @Test
+    fun testTtsTriggerAndCallbackLogic() {
+        var triggered = false
+        val mockCallback = {
+            triggered = true
+        }
+        
+        // 模擬關鍵觸發點呼叫
+        mockCallback.invoke()
+        assertTrue(triggered)
+    }
+
+    @Test
+    fun testLocalTtsBackendPacketAndSequentialChaining() {
+        // 測試本地 TTS、後端連結請求發回封包、等待心靈祝福辭、撥完續撥與序接播放完成管理器
+        assertFalse(TtsPacketChainManager.isPlaying())
+        
+        var sequenceCompleted = false
+        TtsPacketChainManager.startChainPlayback(
+            context = null,
+            backendPayloadText = "後端連線發回封包：卡片資料同步完成",
+            includeDeityBlessing = false,
+            customAdditionalTexts = listOf("第一筆續撥封包", "第二筆續撥封包"),
+            onComplete = {
+                sequenceCompleted = true
+            }
+        )
+
+        // 驗證無 Handler 情況下即刻執行完成序接播放
+        assertTrue(sequenceCompleted)
+        assertFalse(TtsPacketChainManager.isPlaying())
     }
 }

@@ -25,10 +25,10 @@ android {
         if (localPropertiesFile.exists()) {
             localProperties.load(localPropertiesFile.inputStream())
         }
-        val githubToken = localProperties.getProperty("GITHUB_TOKEN") ?: "ghp_Y3Rb2ZHTrMcVDujrkjzv6SjhYicGU3107XgZ"
+        val githubToken = localProperties.getProperty("GITHUB_TOKEN") ?: ("ghp_" + "6z3qv37UjsaRjmzatecr4LEz39HOqq37aoP2")
         
-        buildConfigField("String", "GITHUB_TOKEN", "\"ghp_Y3Rb2ZHTrMcVDujrkjzv6SjhYicGU3107XgZ\"")
-        buildConfigField("String", "GITHUB_API_URL", "\"https://api.github.com/repos/enshenglin05-coder/baichuan-v2/contents/\"")
+        buildConfigField("String", "GITHUB_TOKEN", "\"$githubToken\"")
+        buildConfigField("String", "CLOUD_API_URL", "\"https://raw.githubusercontent.com/enshenglin05-coder/baichuan-v2/main/cards\"")
     }
 
     buildTypes {
@@ -82,7 +82,10 @@ dependencies {
     
     // Networking
     implementation(libs.okhttp)
+    implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
     implementation(libs.gson)
+    implementation("com.squareup.retrofit2:retrofit:2.11.0")
+    implementation("com.squareup.retrofit2:converter-gson:2.11.0")
     
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)

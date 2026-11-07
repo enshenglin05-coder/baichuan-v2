@@ -7,30 +7,30 @@ import com.google.gson.annotations.SerializedName
  * 核心編號矩陣 (11x8) 與模組化邏輯
  */
 data class RequirementCard(
-    @SerializedName(value = "cardId", alternate = ["card_id"]) val card_id: String = "",
-    @SerializedName("publisher_device_id", alternate = ["publisherDeviceId"]) val publisher_device_id: String = "",
-    @SerializedName(value = "timestamp", alternate = ["created_at", "createdAt"]) val created_at: Long = System.currentTimeMillis(),
+    @SerializedName(value = "card_id", alternate = ["cardId", "id"]) val card_id: String = "",
+    @SerializedName(value = "publisher_device_id", alternate = ["publisherDeviceId", "did"]) val publisher_device_id: String = "",
+    @SerializedName(value = "created_at", alternate = ["timestamp", "createdAt", "time"]) val created_at: Long = System.currentTimeMillis(),
     
     // 按讚機制 (1.0 擴展)
     @SerializedName("like_count") val like_count: Int = 0,
     @SerializedName("dislike_count") val dislike_count: Int = 0,
     
     // 11x8 矩陣編碼 (如 "1-1" 到 "11-8")
-    @SerializedName("category_code", alternate = ["drawer_code", "drawerCode"]) val category_code: String = "1-1",
-    @SerializedName("drawer_type", alternate = ["type"]) val drawer_type: String = "1A", // 1A: 需求, 1B: 供給
+    @SerializedName(value = "category_code", alternate = ["drawer_code", "drawerCode"]) val category_code: String = "1-1",
+    @SerializedName(value = "drawer_type", alternate = ["type"]) val drawer_type: String = "1A", // 1A: 需求, 1B: 供給
     
-    @SerializedName(value = "cardType", alternate = ["category_tag", "category_name", "categoryName"]) val category_tag: String = "",
-    @SerializedName("description") val description: String = "",
-    @SerializedName(value = "personalIntroUrl", alternate = ["media_url"]) val media_url: String? = null,
+    @SerializedName(value = "category_tag", alternate = ["cardType", "category_name", "categoryName"]) val category_tag: String = "",
+    @SerializedName("description", alternate = ["desc"]) val description: String = "",
+    @SerializedName(value = "media_url", alternate = ["personalIntroUrl", "intro_url"]) val media_url: String? = null,
     
     // 4 選 1 聯絡工具模組化支援
     @SerializedName("contact_method", alternate = ["contact_type", "contactType"]) val contact_method: ContactMethod = ContactMethod.LINE,
-    @SerializedName(value = "lineId", alternate = ["contact_value", "contact_id", "contactId"]) val contact_value: String = "",
-    @SerializedName(value = "phone", alternate = ["phone_number", "phoneNumber", "mobile", "tel"]) val phone_number: String? = null,
+    @SerializedName(value = "contact_value", alternate = ["lineId", "contact_id", "contactId"]) val contact_value: String = "",
+    @SerializedName(value = "phone_number", alternate = ["phone", "phoneNumber", "mobile", "tel"]) val phone_number: String? = null,
     
     // 經緯度定位與距離計算核心
-    @SerializedName(value = "latitude", alternate = ["gps_lat", "lat"]) val gps_lat: Double = 0.0,
-    @SerializedName(value = "longitude", alternate = ["gps_lng", "lng"]) val gps_lng: Double = 0.0,
+    @SerializedName(value = "gps_lat", alternate = ["latitude", "lat"]) val gps_lat: Double = 0.0,
+    @SerializedName(value = "gps_lng", alternate = ["longitude", "lng"]) val gps_lng: Double = 0.0,
     @SerializedName("mapUrl") val mapUrl: String = "https://www.google.com/maps/search/?api=1&query=$gps_lat,$gps_lng",
     
     @SerializedName("theme_color") val theme_color: String = "#FFFFFF",
@@ -53,7 +53,10 @@ data class RequirementCard(
     val phone: String? get() = phone_number
 
     enum class ContactMethod {
-        LINE, TELEGRAM, WECHAT, PHONE
+        @SerializedName("LINE") LINE,
+        @SerializedName("TELEGRAM") TELEGRAM,
+        @SerializedName("WECHAT") WECHAT,
+        @SerializedName("PHONE") PHONE
     }
 
     /**

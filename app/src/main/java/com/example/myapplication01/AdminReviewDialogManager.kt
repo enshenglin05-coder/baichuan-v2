@@ -123,6 +123,9 @@ object AdminReviewDialogManager {
             .setTitle("🛡️ 後台黑名單與檢舉審核視窗")
             .setView(scrollView)
             .setPositiveButton("關閉", null)
+            .setNeutralButton("📦 查看已播放完畢倉庫（存棒）") { _, _ ->
+                ArchivedWarehouseDialogManager.showWarehouseDialog(context)
+            }
             .show()
     }
 }

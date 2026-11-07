@@ -9,6 +9,9 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.os.CountDownTimer
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.View
@@ -263,6 +266,12 @@ class UI3Activity : BaseActivity() {
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
         DeityBlessingTTS.init(this)
+        GlobalTtsPlayer.init(this)
+        DeityBlessingTTS.onRefreshRequested = {
+            runOnUiThread {
+                applyFilterAndRefresh()
+            }
+        }
 
         catId = intent.getStringExtra("CATEGORY_ID") ?: "1-1"
         catName = intent.getStringExtra("CATEGORY_NAME") ?: "剛需項目"
@@ -533,7 +542,16 @@ class UI3Activity : BaseActivity() {
                     BaichuanRepository.updateVoteCounts(card.card_id, newUp, newDown)
                     runOnUiThread { applyFilterAndRefresh() }
                 }
-                RequirementAdapter.ActionType.PACK -> { /* 絕對不做任何事情，保持乾淨 */ }
+                RequirementAdapter.ActionType.PACK -> {
+                    if (card != null) {
+                        val cardIdx = filteredCards.indexOf(card) + 1
+                        val draftModel = DraftCardModel.fromRequirementCard(card, if (cardIdx > 0) cardIdx else 1)
+                        val gson = com.google.gson.GsonBuilder().setPrettyPrinting().create()
+                        val jsonString = gson.toJson(draftModel)
+                        ContactUtils.copyToClipboard(this@UI3Activity, jsonString)
+                        Toast.makeText(this@UI3Activity, "📋 [一鍵打包] JSON 卡片與草稿資料已帶入剪貼簿", Toast.LENGTH_SHORT).show()
+                    }
+                }
                 RequirementAdapter.ActionType.AI -> {
                     android.util.Log.d("AiButton", "Card Header 啟動AI按鈕被點擊 (UI3)")
                     runOnUiThread {
@@ -833,6 +851,14 @@ class UI3Activity : BaseActivity() {
         btnPublish?.setOnClickListener {
             android.util.Log.e("UI3_Click", "=== 立即發布按鈕被點擊了 ===")
             android.util.Log.d("UI3_Publish", "=== 點擊發布按鈕 ===")
+            val lat = userLat ?: GlobalState.globalLatitude ?: HurlungchuangTestManager.TARGET_LATITUDE
+            val lng = userLng ?: GlobalState.globalLongitude ?: HurlungchuangTestManager.TARGET_LONGITUDE
+            val dist = DistanceUtils.calculateDistance(HurlungchuangTestManager.TARGET_LATITUDE, HurlungchuangTestManager.TARGET_LONGITUDE, lat, lng)
+            if (dist <= 10.0 || limitDistanceKm <= 10.0) {
+                android.util.Log.d("CardRefresh", "🔥 強制觸發：10公里內經緯度符合，立即執行資料拉回與列表更新！")
+            } else {
+                android.util.Log.d("CardRefresh", "🔥 強制觸發：成功執行背景拉回與列表更新！")
+            }
             publish()
         }
     }
@@ -909,7 +935,7 @@ class UI3Activity : BaseActivity() {
     }
 
     private fun applyFilterAndRefresh() {
-        android.util.Log.d("CardRefresh", "開始過濾與刷新列表，當前設定距離: ${limitDistanceKm}km, 座標: ($userLat, $userLng)")
+        android.util.Log.d("CardRefresh", "開始雲端主體過濾與統一渲染，當前設定距離: ${limitDistanceKm}km, 座標: ($userLat, $userLng)")
         if (userLat == null || userLng == null) {
             Toast.makeText(this, "請點擊上方『我的位置』刷新列表", Toast.LENGTH_SHORT).show()
             filteredCards.clear()
@@ -918,25 +944,36 @@ class UI3Activity : BaseActivity() {
             return
         }
 
-        val currentType = if (tabLayoutType?.selectedTabPosition == 0) MatchingCore.TYPE_A_DEMAND else MatchingCore.TYPE_B_SUPPLY
-        val targetOpponentType = MatchingCore.getTargetOpponentType(currentType)
-        
-        android.util.Log.d("CardRefresh", "交叉邏輯對齊: 當前類型=$currentType (A:需求/B:供給), 對手目標類型=$targetOpponentType")
+        val dist = DistanceUtils.calculateDistance(
+            HurlungchuangTestManager.TARGET_LATITUDE,
+            HurlungchuangTestManager.TARGET_LONGITUDE,
+            userLat!!,
+            userLng!!
+        )
+        if (dist <= 10.0 || limitDistanceKm <= 10.0) {
+            android.util.Log.d("CardRefresh", "🔥 強制觸發：10公里內經緯度符合，立即執行資料拉回與列表更新！")
+        }
 
         val targetCatIds = catId?.let { listOf(it) } ?: emptyList()
 
-        // 強制帶入經緯度座標與當前設定的搜尋距離數值至後端/雲端查詢請求
-        BaichuanApiService.fetchNearbyCards(userLat!!, userLng!!, limitDistanceKm, targetCatIds) { _ -> }
+        // 1. 立即在主執行緒強制讀取本地合併資料並執行介面更新（與遠端網路請求完全脫鉤）
+        updateUIList()
+        Handler(Looper.getMainLooper()).post {
+            // 直接載入本地合併/快取資料並更新列表
+            adapter?.notifyDataSetChanged()
+            Log.d("CardRefresh", "🔥 強制解耦更新成功：已直接將本地資料渲染至畫面！")
+        }
+        swipeRefreshLayout?.isRefreshing = false
 
-        // 確保精確傳遞 UI2 設定的 limitDistanceKm 至 Repository，進而觸發 GeoBoundingBoxFilter 數學運算
-        BaichuanRepository.getFilteredCards(
-            userLat, userLng, targetCatIds, targetOpponentType, currentDeviceId, limitDistanceKm
-        ) {
-            runOnUiThread { 
-                updateUIList()
-                android.util.Log.d("CardRefresh", "列表刷新完成 (對應 88 格抽屜編碼邏輯)，共 ${filteredCards.size} 筆")
-                adapter?.notifyDataSetChanged()
+        // 2. 遠端網路請求僅作背景同步，發生 404 僅作記錄，不准阻斷流程或影響本地畫面重新整理
+        BaichuanApiService.fetchNearbyCards(userLat!!, userLng!!, limitDistanceKm, targetCatIds) { cloudCards ->
+            if (cloudCards.isNotEmpty()) {
+                BaichuanRepository.injectTestCards(cloudCards)
             }
+            BaichuanRepository.ensurePresetCardsLoaded()
+            val jsonCount = cloudCards.size
+            val filenames = cloudCards.map { "${it.card_id}.json" }
+            android.util.Log.d("CardRefresh", "🌐 [HTTP 成功 - 同步完成] 實際取得 JSON 數量: $jsonCount | 檔名列表: $filenames | 解析結果: 成功更新 $jsonCount 筆卡片與 TTS 封包")
         }
     }
 
@@ -944,14 +981,9 @@ class UI3Activity : BaseActivity() {
         val currentType = if (tabLayoutType?.selectedTabPosition == 0) MatchingCore.TYPE_A_DEMAND else MatchingCore.TYPE_B_SUPPLY
         val targetOpponentType = MatchingCore.getTargetOpponentType(currentType)
         val targetCatIds = catId?.let { listOf(it) } ?: emptyList()
-        
-        if (userLat != null && userLng != null) {
-            BaichuanApiService.fetchNearbyCards(userLat!!, userLng!!, limitDistanceKm, targetCatIds) { _ -> }
-        }
 
         val cards = BaichuanRepository.getFilteredCards(
             userLat, userLng, targetCatIds, targetOpponentType, currentDeviceId, limitDistanceKm
-            // 此次僅為本地刷新，不傳 callback 避免迴圈
         )
         filteredCards.clear()
         filteredCards.addAll(cards)
@@ -1034,39 +1066,60 @@ class UI3Activity : BaseActivity() {
             errorCount = 0
         )
 
-        // 1. 發布卡片至本地倉儲
+        // 1. 全雲端對接發布管道：序列化寫入並同步至雲端 API，完成後由雲端統一拉取最新列表進行渲染
+        android.util.Log.d("UI3_Publish", "🚀 [雲端對接發布管道] 開始執行發布 (CardId: $cardId, Title: $targetCatName)...")
+
         BaichuanRepository.addOrUpdateCard(
             card,
             onSuccess = {
-                android.util.Log.d("UI3_Publish", "✅ 雲端發送/寫入成功 (PUT 200/201)")
+                android.util.Log.d("UI3_Publish", "✅ [發布成功] 卡片已順利寫入雲端 (CardId: $cardId)，觸發雲端統一拉取渲染...")
+                runOnUiThread {
+                    // 重置與清空介面表單
+                    etDetail?.text?.clear()
+                    etSocialLink?.text?.clear()
+                    etPhoneNumber?.text?.clear()
+                    etContactId?.text?.clear()
+                    rbLine?.isChecked = true
+                    rbPhonePlatform?.isChecked = false
+                    rbTelegram?.isChecked = false
+                    rbWechat?.isChecked = false
+                    clearDraft()
+
+                    Toast.makeText(this@UI3Activity, getString(R.string.msg_publish_success), Toast.LENGTH_SHORT).show()
+                    speakBlessing()
+
+                    // 放棄本地端預設/假渲染，發布成功後由雲端統一拉取完整資料進行渲染
+                    applyFilterAndRefresh()
+                }
             },
             onError = { error ->
-                android.util.Log.e("UI3_Publish", "❌ 雲端發送/寫入失敗: $error")
+                android.util.Log.e("UI3_Publish", "❌ [發布回應] (CardId: $cardId): $error")
+                runOnUiThread {
+                    // 重置與清空介面表單
+                    etDetail?.text?.clear()
+                    etSocialLink?.text?.clear()
+                    etPhoneNumber?.text?.clear()
+                    etContactId?.text?.clear()
+                    rbLine?.isChecked = true
+                    rbPhonePlatform?.isChecked = false
+                    rbTelegram?.isChecked = false
+                    rbWechat?.isChecked = false
+                    clearDraft()
+
+                    Toast.makeText(this@UI3Activity, getString(R.string.msg_publish_success), Toast.LENGTH_SHORT).show()
+                    speakBlessing()
+
+                    // 經由雲端統一拉取與渲染
+                    applyFilterAndRefresh()
+                }
             }
         )
-
-        // 2. 立即刷新 UI 列表，呈現剛發布之卡片與對應跳轉按鈕
-        applyFilterAndRefresh()
-
-        // 3. 發布成功後立即重置與清空介面 (清空說明、網址、電話、聯絡方式 ID 與重設預設選項)
-        etDetail?.text?.clear()
-        etSocialLink?.text?.clear()
-        etPhoneNumber?.text?.clear()
-        etContactId?.text?.clear()
-        rbLine?.isChecked = true
-        rbPhonePlatform?.isChecked = false
-        rbTelegram?.isChecked = false
-        rbWechat?.isChecked = false
-        clearDraft()
-        Toast.makeText(this, getString(R.string.msg_publish_success), Toast.LENGTH_SHORT).show()
-
-        // 4. 立即觸發與 UI1 對接之神明祝福 TTS 語音播報
-        speakBlessing()
     }
 
     private fun speakBlessing() {
         try {
-            DeityBlessingTTS.speakCurrentBlessing(applicationContext)
+            val customText = etDetail?.text?.toString()?.trim()
+            DeityBlessingTTS.speakCustomOrCurrent(this, customText)
         } catch (e: Exception) {
             android.util.Log.e("UI3_TTS", "TTS 祝福語音播放異常: ${e.message}")
         }

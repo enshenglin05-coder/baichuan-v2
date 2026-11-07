@@ -27,16 +27,15 @@ object BaichuanRepository {
     private const val MAX_REPORT_THRESHOLD = 3
 
     fun init(context: Context) {
-        // 初始化倉儲、12小時自動抹除與 Git 雲端同步循環
+        // 初始化在地端 JSON 資料庫與倉儲
+        LocalCardDatabase.init(context)
         purgeExpiredCards()
         seedTestDrawerData()
-        GitSyncScheduler.startSyncLoop()
     }
 
     init {
         // 初始化載入測試卡片與搜尋引擎情境推理 88 個卡片項目
         seedTestDrawerData()
-        GitSyncScheduler.startSyncLoop()
     }
 
     /**
@@ -57,12 +56,28 @@ object BaichuanRepository {
     }
 
     /**
-     * 批次載入預設測試抽屜資料 (1-1, 4-1, 4-2 及搜尋引擎情境推理 88 卡片)
+     * 批次載入預設測試抽屜資料 (1-1, 4-1, 4-2 及搜尋引擎情境推理 88 卡片) 並載入在地 JSON 資料庫卡片
      */
     fun seedTestDrawerData() {
         clearAll()
         DrawerBatchTester.seedRepositoryWithTestCards()
         SearchEngineReasoningEngine.generateAndPublish88Cards()
+        loadLocalDatabaseCards()
+    }
+
+    /**
+     * 從在地端 JSON 資料庫載入手動發布卡片至記憶體倉儲
+     */
+    fun loadLocalDatabaseCards(context: Context? = null) {
+        val localCards = LocalCardDatabase.getAllLocalCards(context)
+        if (localCards.isNotEmpty()) {
+            injectTestCards(localCards)
+            try {
+                android.util.Log.d("BaichuanRepo", "📥 已從在地端 JSON 資料庫載入 ${localCards.size} 張手動卡片至記憶體")
+            } catch (e: Throwable) {
+                println("[BaichuanRepo] 📥 已從在地端 JSON 資料庫載入 ${localCards.size} 張手動卡片至記憶體")
+            }
+        }
     }
 
     /**
@@ -78,13 +93,17 @@ object BaichuanRepository {
 
     /**
      * 新增或更新卡片 (分片邏輯)
-     * 同一發布者重新發布時，直接覆蓋該類別下的舊數據
+     * 1. 序列化並寫入在地端 JSON 資料庫 (檔名: $cardId.json)
+     * 2. 讀取在地 JSON 檔案並透過 PUT 請求真正上傳至遠端 GitHub 的 cards/ 資料夾中
      */
     fun addOrUpdateCard(
         card: RequirementCard,
         onSuccess: (() -> Unit)? = null,
         onError: ((String) -> Unit)? = null
     ) {
+        // 1. 本地 JSON 序列化與在地資料庫實體寫入
+        LocalCardDatabase.saveCard(card)
+
         // 防止重複發布與優先覆蓋機制：以最後一筆為優先，跨所有分片移除該發布者過去的所有舊卡片
         if (card.publisher_device_id != "SYSTEM_ADMIN" && !card.is_test_only && card.publisher_device_id.isNotBlank()) {
             for ((_, categoryMap) in partitionedCards) {
@@ -104,7 +123,7 @@ object BaichuanRepository {
         // 全新寫入最新卡片 (以最後一筆為優先)
         categoryMap[card.card_id] = card
         
-        // 本地與後端倉庫同步生效
+        // 2. 雲端上傳通道對接：從在地資料庫讀取 JSON 檔案並上傳至遠端 GitHub cards/ 資料夾
         if (!card.is_test_only) {
             BaichuanApiService.publishCard(card, {
                 onSuccess?.invoke()
@@ -127,7 +146,24 @@ object BaichuanRepository {
     }
 
     /**
-     * 獲取過濾後的卡片列表 (精準分片抓取版本)
+     * 確保 12大項97格矩陣之固定預設值卡片在記憶體中就緒
+     */
+    fun ensurePresetCardsLoaded() {
+        var hasPresetCards = false
+        for (map in partitionedCards.values) {
+            if (map.values.any { it.isPresetCard() }) {
+                hasPresetCards = true
+                break
+            }
+        }
+        if (!hasPresetCards) {
+            DrawerBatchTester.seedRepositoryWithTestCards()
+            SearchEngineReasoningEngine.generateAndPublish88Cards()
+        }
+    }
+
+    /**
+     * 獲取過濾後的卡片列表 (兩步驟依序載入：手動寫入/雲端卡片優先置頂，固定預設卡片帶入下方顯示)
      */
     fun getFilteredCards(
         userLat: Double?,
@@ -139,24 +175,27 @@ object BaichuanRepository {
         onFetchComplete: (() -> Unit)? = null
     ): List<RequirementCard> {
         
-        // 1. 自動執行 12 小時暫存抹除作業，並回傳本地記憶體快取
+        // 1. 自動執行 12 小時暫存抹除作業
         purgeExpiredCards()
         onFetchComplete?.invoke()
 
-        // 2. 僅從請求的「抽屜」(Partitions) 中提取數據，禁止全量 filter()
+        // 2. 從「抽屜」(Partitions) 中提取數據
         val sourcePool = mutableListOf<RequirementCard>()
         
-        // 加入請求的類別數據
-        categoryCodes.forEach { code ->
-            partitionedCards[code]?.values?.let { sourcePool.addAll(it) }
+        if (categoryCodes.isEmpty()) {
+            partitionedCards.values.forEach { map -> sourcePool.addAll(map.values) }
+        } else {
+            categoryCodes.forEach { code ->
+                partitionedCards[code]?.values?.let { sourcePool.addAll(it) }
+            }
         }
 
-        // 3. 執行必要的業務過濾 (TTL, Bounding Box, 角色)
+        // 3. 執行算能與業務過濾 (TTL, 12大項97格矩陣驗證, A/B 雙向交叉, GPS 經緯度距離數學函數)
         val box = if (userLat != null && userLng != null) {
             GeoBoundingBoxFilter.calculateBoundingBox(userLat, userLng, limitDistanceKm)
         } else null
         
-        return sourcePool.filter { card ->
+        val validCards = sourcePool.filter { card ->
             // TTL 檢查 (支援動態 ttl_hours)
             if (card.isExpired()) return@filter false
             
@@ -167,10 +206,13 @@ object BaichuanRepository {
             // 排除自己檢舉過的
             if (card.reporter_ids.contains(currentDeviceId)) return@filter false
             
-            // 角色對齊 (需求 vs 供給)
+            // A/B 雙向交叉邏輯角色對齊 (1A: 需求 vs 1B: 供給: A送B, B送A)
             if (card.drawer_type != targetType) return@filter false
+
+            // 12大項97格直向矩陣驗證 (0-0 及 1-1 至 12-8)
+            if (!com.example.myapplication01.repository.core.MatchingCore.validateCategoryCode(card.category_code)) return@filter false
             
-            // Bounding Box 與距離檢查
+            // 經緯度數學函數 (Bounding Box 與距離檢查)
             if (box != null && userLat != null && userLng != null) {
                 val inBox = card.gps_lat in box.minLat..box.maxLat && card.gps_lng in box.minLon..box.maxLon
                 if (!inBox) return@filter false
@@ -178,10 +220,32 @@ object BaichuanRepository {
                 val distance = DistanceUtils.calculateDistance(userLat, userLng, card.gps_lat, card.gps_lng)
                 distance <= limitDistanceKm
             } else {
-                false // 恢復標準邏輯：無座標時不顯示任何卡片
+                false // 無座標時不顯示
             }
         }.map { it.copy(isSelfOwner = it.publisher_device_id == currentDeviceId) }
-         .sortedWith(compareByDescending<RequirementCard> { it.isSelfOwner }.thenByDescending { it.created_at })
+
+        // 4. 載入優先權順序 (Priority Sequence) 與三順位依序去重補位：
+        // 【第一順位 (絕對優先)】與【第二順位 (動態卡片)】：使用者真實發布/動態拉取之主體卡片 (!isPresetCard)
+        val realUserCards = validCards.filter { !it.isPresetCard() }
+        
+        // 收集已由真實卡片佔據之抽屜集合 (category_code + "_" + drawer_type)
+        val occupiedDrawers = realUserCards.map { "${it.category_code}_${it.drawer_type}" }.toSet()
+
+        // 【第三順位 (補位用)】：系統預設值，僅在該抽屜無任何真實卡片時填補空缺，絕不排擠或重複覆蓋真實卡片
+        val fallbackPresetCards = validCards.filter { card ->
+            card.isPresetCard() && "${card.category_code}_${card.drawer_type}" !in occupiedDrawers
+        }
+
+        // 兩步驟依序排序：真實卡片在前 (使用者自己發布的優先置頂)，預設補位卡片在後
+        return (realUserCards + fallbackPresetCards).sortedWith(
+            compareBy<RequirementCard> { card ->
+                if (!card.isPresetCard()) 0 else 1
+            }.thenByDescending { card ->
+                card.isSelfOwner
+            }.thenByDescending { card ->
+                card.created_at
+            }
+        )
     }
 
     /**
@@ -262,10 +326,11 @@ object BaichuanRepository {
     }
 
     /**
-     * 移除卡片 (跨分片移除)
+     * 移除卡片 (跨分片與在地端 JSON 資料庫移除)
      * 並執行遠端刪除同步，支援回調
      */
     fun removeCard(cardId: String, onSuccess: () -> Unit = {}, onError: (String) -> Unit = {}) {
+        LocalCardDatabase.deleteCard(cardId)
         var targetCard: RequirementCard? = null
         for (map in partitionedCards.values) {
             if (map.containsKey(cardId)) {

@@ -33,7 +33,7 @@ data class QuarantinedCardRecord(
  */
 object CardJsonExceptionHandler {
 
-    private val gson = Gson()
+    private val gson: Gson get() = BaichuanApiService.gson
     private const val EXCEPTION_THRESHOLD = 3
 
     // 紀錄異常問題發生次數 (以 cardId 或 JSON Hash 為 key)

@@ -198,7 +198,11 @@ class RequirementAdapter(
                 ) {}
             }
         }
-        holder.btnHeaderPack.setOnClickListener { /* 絕對不做任何事情，保持乾淨 */ }
+        holder.btnHeaderPack.setOnClickListener { view ->
+            view.isClickable = true
+            view.isFocusable = true
+            onAction(ActionType.PACK, card, view)
+        }
         holder.btnHeaderAi.setOnClickListener { view ->
             view.isClickable = true
             view.isFocusable = true
@@ -481,7 +485,18 @@ class RequirementAdapter(
     }
 
     fun updateData(newCards: List<RequirementCard>, newLat: Double?, newLng: Double?) {
-        this.cards = newCards
+        val sortedCards = newCards.sortedWith(
+            compareBy<RequirementCard> { card ->
+                if (!card.isPresetCard()) 0 else 1
+            }.thenByDescending { card ->
+                card.isSelfOwner
+            }.thenByDescending { card ->
+                card.created_at
+            }.thenByDescending { card ->
+                card.card_id
+            }
+        )
+        this.cards = sortedCards
         this.userLat = newLat
         this.userLng = newLng
         notifyDataSetChanged()

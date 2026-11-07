@@ -158,9 +158,13 @@ object CategoryRepository {
     }
 
     fun getAllCategoryIds(): List<String> {
-        return (1..12).flatMap { main ->
-            (1..8).map { sub -> "$main-$sub" }
+        val list = mutableListOf("0-0") // 總覽主格
+        for (main in 1..12) {
+            for (sub in 1..8) {
+                list.add("$main-$sub")
+            }
         }
+        return list
     }
 
     /**
@@ -168,6 +172,7 @@ object CategoryRepository {
      * 用於動態 UI 文字對齊
      */
     fun getCategoryTitle(categoryCode: String, context: android.content.Context? = null): String {
+        if (categoryCode == "0-0") return "12大項 97格 總覽主格"
         val parts = categoryCode.split("-")
         if (parts.size != 2) return "未知項目"
         val main = parts[0]
