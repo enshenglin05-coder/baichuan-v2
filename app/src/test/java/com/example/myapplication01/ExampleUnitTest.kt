@@ -18,12 +18,12 @@ class ExampleUnitTest {
     @Test
     fun testDrawer1_1_ParsingAndLoading() {
         val testCards = DrawerBatchTester.getTestCardsForDrawer11()
-        assertEquals(20, testCards.size)
+        assertEquals(21, testCards.size)
         
         val requirements = testCards.filter { it.drawer_type == "1A" }
         val supplies = testCards.filter { it.drawer_type == "1B" }
         assertEquals(10, requirements.size)
-        assertEquals(10, supplies.size)
+        assertEquals(11, supplies.size)
 
         // Verify specific card properties
         val firstCard = testCards.first()
@@ -251,12 +251,12 @@ class ExampleUnitTest {
     fun testDrawer1_1CamelTestCards() {
         BaichuanRepository.clearAll()
         val camelCards = DrawerBatchTester.loadDrawer1_1CamelTestCards()
-        assertEquals(20, camelCards.size)
+        assertEquals(21, camelCards.size)
 
         val reqs = camelCards.filter { it.drawer_type == "1A" }
         val sups = camelCards.filter { it.drawer_type == "1B" }
         assertEquals(10, reqs.size)
-        assertEquals(10, sups.size)
+        assertEquals(11, sups.size)
 
         assertEquals("REQ_1_1_01", reqs.first().card_id)
         assertEquals("SUP_1_1_01", sups.first().card_id)
@@ -662,24 +662,26 @@ class ExampleUnitTest {
         HurlungchuangTestManager.resetTest()
         assertEquals(100, HurlungchuangTestManager.getRemainingCount())
 
-        // 1. 測試超出 10 公里範圍（例如台中：24.1477, 120.6736）
+        // 1. 測試超出 6 公里範圍（例如台中：24.1477, 120.6736）
         val outsideLat = 24.1477
         val outsideLng = 120.6736
         var archivedCalled = false
 
-        HurlungchuangTestManager.simulateTtsTrigger(outsideLat, outsideLng) { _ ->
-            archivedCalled = true
-        }
+        val outsidePayload = HurlungchuangTestManager.checkAndPullPayload(outsideLat, outsideLng)
+        assertNull(outsidePayload)
         assertEquals(100, HurlungchuangTestManager.getRemainingCount())
-        assertFalse(archivedCalled)
 
-        // 2. 測試在 10 公里範圍內（中和烘爐地：25.002396, 121.497381）
-        val insideLat = 25.002396
-        val insideLng = 121.497381
+        // 2. 測試在 6 公里範圍內（廣濟宮：25.002457, 121.497370）
+        val insideLat = 25.002457
+        val insideLng = 121.497370
 
-        // 連續觸發 100 次
+        val insidePayload = HurlungchuangTestManager.checkAndPullPayload(insideLat, insideLng)
+        assertNotNull(insidePayload)
+        assertEquals("中和廣濟宮開漳聖王聖王公守護您", insidePayload)
+
+        // 連續觸發自然播放完成 100 次
         repeat(100) {
-            HurlungchuangTestManager.simulateTtsTrigger(insideLat, insideLng) { record ->
+            HurlungchuangTestManager.onPlaybackCompleted { record ->
                 archivedCalled = true
                 assertNotNull(record)
                 assertEquals("AD_HURLUNGCHUANG_01", record.adId)
@@ -697,10 +699,10 @@ class ExampleUnitTest {
         LocalCardDatabase.clearAll()
 
         // 1. IDE 唯一主控與編譯輸入：設定播報內容、目標經緯度、距離範圍與初始次數
-        val testText = "中和廣濟宮聖王公守護您"
-        val testLat = 25.002396
-        val testLng = 121.497381
-        val testRadius = 10.0
+        val testText = "中和廣濟宮開漳聖王聖王公守護您"
+        val testLat = 25.002457
+        val testLng = 121.497370
+        val testRadius = 6.0
         val initialCount = 100
         val testCardId = "TEST_IDE_MASTER_CARD_01"
 
@@ -718,15 +720,14 @@ class ExampleUnitTest {
         assertNotNull(initialCard)
         assertEquals(testText, initialCard?.description)
 
-        // 2. 超出 10km 範圍（例如台中：24.1477, 120.6736），經緯度比對不通過
+        // 2. 超出 6km 範圍（例如台中：24.1477, 120.6736），經緯度比對不通過
         val outOfRangeSuccess = IdeMasterTtsController.executeCoreFlow(
             currentLat = 24.1477,
             currentLng = 120.6736
         )
         assertFalse(outOfRangeSuccess)
 
-        // 3. 在 10km 範圍內進行 TTS 播報，鎖定倒數第二個字並精準扣減 (100 ➔ 99 ➔ ... ➔ 0)
-        var capturedSecondToLastChar = ' '
+        // 3. 在 6km 範圍內進行 TTS 播報，自然播放完成並精準扣減 (100 ➔ 99 ➔ ... ➔ 0)
         var lastRemainingCount = initialCount
         var archiveRecordCreated: RecycledAdRecord? = null
 
@@ -734,9 +735,8 @@ class ExampleUnitTest {
             val isSuccess = IdeMasterTtsController.executeCoreFlow(
                 currentLat = testLat,
                 currentLng = testLng,
-                onSecondToLastCharTriggered = { remaining, char ->
+                onSecondToLastCharTriggered = { remaining, _ ->
                     lastRemainingCount = remaining
-                    capturedSecondToLastChar = char
                 },
                 onArchived = { record ->
                     archiveRecordCreated = record
@@ -745,11 +745,10 @@ class ExampleUnitTest {
             assertTrue(isSuccess)
         }
 
-        // 4. 驗證倒數第二個字捕捉與扣減結果
-        assertEquals('護', capturedSecondToLastChar)
+        // 4. 驗證自然播放完成與扣減結果
         assertEquals(0, lastRemainingCount)
 
-        // 5. 驗證歸零自動搬運（屍體歸位）：實體檔案從主資料夾搬移至已封存回收倉庫
+        // 5. 驗證歸零自動搬運（歸位）：實體檔案從主資料夾搬移至已封存回收倉庫
         assertNotNull(archiveRecordCreated)
         assertEquals(testCardId, archiveRecordCreated?.adId)
 
@@ -776,8 +775,8 @@ class ExampleUnitTest {
         val testCard = RequirementCard(
             card_id = testCardId,
             description = "測試已播放完畢存棒倉庫卡片",
-            gps_lat = 25.002396,
-            gps_lng = 121.497381
+            gps_lat = 25.002457,
+            gps_lng = 121.497370
         )
         LocalCardDatabase.saveCard(testCard)
 

@@ -139,6 +139,7 @@ object BaichuanRepository {
      * 自動清除/抹除所有超過 12 小時的暫存卡片資料 (真實與虛擬卡片一律生效)
      */
     fun purgeExpiredCards(nowMillis: Long = System.currentTimeMillis()) {
+        LocalCardDatabase.purgeExpiredLocalCards()
         for (map in partitionedCards.values) {
             val expiredKeys = map.filter { (_, card) -> card.isExpired(nowMillis) }.keys
             expiredKeys.forEach { map.remove(it) }
@@ -222,30 +223,34 @@ object BaichuanRepository {
             } else {
                 false // 無座標時不顯示
             }
-        }.map { it.copy(isSelfOwner = it.publisher_device_id == currentDeviceId) }
+        }.map { it.copy(isSelfOwner = it.publisher_device_id == currentDeviceId || it.publisher_device_id.isBlank() || LocalCardDatabase.getCard(it.card_id) != null) }
 
-        // 4. 載入優先權順序 (Priority Sequence) 與三順位依序去重補位：
-        // 【第一順位 (絕對優先)】與【第二順位 (動態卡片)】：使用者真實發布/動態拉取之主體卡片 (!isPresetCard)
-        val realUserCards = validCards.filter { !it.isPresetCard() }
+        // 4. 載入優先權順序 (Priority Sequence) 與排序合併邏輯：
+        // 第一優先群組（使用者發布卡片）：將使用者手動發布的卡片置於最前方，最新發布的排在最前面
+        val userCards = validCards.filter { !it.isPresetCard() }.sortedByDescending { it.created_at }
         
-        // 收集已由真實卡片佔據之抽屜集合 (category_code + "_" + drawer_type)
-        val occupiedDrawers = realUserCards.map { "${it.category_code}_${it.drawer_type}" }.toSet()
+        // 第二優先群組（預設卡片）：將系統的預設卡片固定排列在整個列表的最後面
+        val defaultCards = validCards.filter { card ->
+            card.isPresetCard()
+        }.sortedByDescending { it.created_at }
 
-        // 【第三順位 (補位用)】：系統預設值，僅在該抽屜無任何真實卡片時填補空缺，絕不排擠或重複覆蓋真實卡片
-        val fallbackPresetCards = validCards.filter { card ->
-            card.isPresetCard() && "${card.category_code}_${card.drawer_type}" !in occupiedDrawers
+        // 將兩者合併為一個完整的顯示清單：[使用者發布卡片列表] + [預設卡片列表]
+        val finalList = userCards + defaultCards
+
+        safeLogD("CardSorting", "使用者發布卡片數: ${userCards.size}, 預設卡片數: ${defaultCards.size}, 總渲染數: ${finalList.size}")
+        finalList.forEachIndexed { index, card ->
+            safeLogD("CardSorting", "排序後卡片[$index] ID: ${card.card_id}, 分類: ${card.category_tag}, 建立時間: ${card.created_at}")
         }
 
-        // 兩步驟依序排序：真實卡片在前 (使用者自己發布的優先置頂)，預設補位卡片在後
-        return (realUserCards + fallbackPresetCards).sortedWith(
-            compareBy<RequirementCard> { card ->
-                if (!card.isPresetCard()) 0 else 1
-            }.thenByDescending { card ->
-                card.isSelfOwner
-            }.thenByDescending { card ->
-                card.created_at
-            }
-        )
+        return finalList
+    }
+
+    private fun safeLogD(tag: String, msg: String) {
+        try {
+            android.util.Log.d(tag, msg)
+        } catch (_: Throwable) {
+            println("[$tag] $msg")
+        }
     }
 
     /**
@@ -330,6 +335,11 @@ object BaichuanRepository {
      * 並執行遠端刪除同步，支援回調
      */
     fun removeCard(cardId: String, onSuccess: () -> Unit = {}, onError: (String) -> Unit = {}) {
+        try {
+            android.util.Log.d("CardRefresh", "🗑️ [Repository 移除卡片] 開始移除卡片ID: $cardId")
+        } catch (_: Throwable) {
+            println("[CardRefresh] 🗑️ [Repository 移除卡片] 開始移除卡片ID: $cardId")
+        }
         LocalCardDatabase.deleteCard(cardId)
         var targetCard: RequirementCard? = null
         for (map in partitionedCards.values) {
@@ -339,8 +349,7 @@ object BaichuanRepository {
             }
         }
         
-        targetCard?.let { card ->
-            BaichuanApiService.deleteCard(card, onSuccess, onError)
-        } ?: onSuccess()
+        val cardToDelete = targetCard ?: LocalCardDatabase.getCard(cardId) ?: RequirementCard(card_id = cardId)
+        BaichuanApiService.deleteCard(cardToDelete, onSuccess, onError)
     }
 }

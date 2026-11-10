@@ -105,6 +105,7 @@ object ContactUtils {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val clip = ClipData.newPlainText("Contact ID", text)
         clipboard.setPrimaryClip(clip)
-        Toast.makeText(context, "已複製 ID: $text", Toast.LENGTH_SHORT).show()
+        val toastMsg = if (text.length > 50) "已複製至剪貼簿 (長度: ${text.length})" else "已複製 ID: $text"
+        Toast.makeText(context, toastMsg, Toast.LENGTH_SHORT).show()
     }
 }

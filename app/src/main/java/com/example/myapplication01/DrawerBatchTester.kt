@@ -310,6 +310,21 @@ object DrawerBatchTester {
         "ttl_hours": 12,
         "is_test_only": true,
         "created_at": "SYSTEM_NOW"
+      },
+      {
+        "card_id": "TEST_DRAWER_1_1_021",
+        "drawer_code": "1-1",
+        "category_name": "在地攤商 / 個人私廚",
+        "type": "SUPPLY",
+        "title": "【供給】手作鮮奶布丁 焦糖香濃",
+        "description": "嚴選小農鮮乳與天然雞蛋製作，綿密滑順，每顆 45 元。",
+        "contact_type": "Phone",
+        "contact_id": "0912223344",
+        "lat": 25.002500,
+        "lng": 121.497200,
+        "ttl_hours": 12,
+        "is_test_only": true,
+        "created_at": "SYSTEM_NOW"
       }
     ]
     """.trimIndent()
@@ -2396,17 +2411,30 @@ object DrawerBatchTester {
         "lat": 25.012614,
         "lng": 121.489660,
         "createdAt": "2026-09-22T23:30:00Z"
+      },
+      {
+        "cardId": "SUP_1_1_11",
+        "drawerCode": "1-1",
+        "categoryName": "在地攤商 剛需外送",
+        "type": "SUPPLY",
+        "title": "【供給】手作鮮奶布丁 焦糖香濃",
+        "description": "嚴選小農鮮乳與天然雞蛋製作，綿密滑順，每顆 45 元。",
+        "contactType": "Phone",
+        "contactId": "0988000011",
+        "lat": 25.002500,
+        "lng": 121.497200,
+        "createdAt": "2026-09-22T23:30:00Z"
       }
     ]
     """.trimIndent()
 
     /**
-     * 載入 1-1 camelCase 格式測試卡片 20 筆
+     * 載入 1-1 camelCase 格式測試卡片 21 筆
      */
     fun loadDrawer1_1CamelTestCards(): List<RequirementCard> {
         val testCards = parseDrawerJson(TEST_DRAWER_1_1_CAMEL_JSON)
         BaichuanRepository.injectTestCards(testCards)
-        val message = "✅ 抽屜 1-1 camelCase 測試卡片 20 筆（需求 10 筆 + 供給 10 筆）載入成功！"
+        val message = "✅ 抽屜 1-1 camelCase 測試卡片 21 筆（需求 10 筆 + 供給 11 筆）載入成功！"
         safeLogI("DrawerBatchTester", message)
         println(message)
         return testCards

@@ -37,6 +37,9 @@ class AppWebViewClient(private val context: Context) : WebViewClient() {
 
     override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
         var url = request?.url?.toString() ?: return false
+        if (url == "#" || url.endsWith("/#")) {
+            return true
+        }
         if (url.startsWith("http://", ignoreCase = true)) {
             url = "https://" + url.substring(7)
         }
@@ -49,6 +52,9 @@ class AppWebViewClient(private val context: Context) : WebViewClient() {
     // 舊版 API 兼容
     @Deprecated("Deprecated in Java")
     override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+        if (url == "#" || url?.endsWith("/#") == true) {
+            return true
+        }
         if (handleTelUrl(view, url) || handleExternalAppUrl(view, url)) {
             return true
         }
@@ -129,7 +135,7 @@ class AppWebViewClient(private val context: Context) : WebViewClient() {
      * 綜合外部 App URL / 深層連結 (Deep Link) 攔截器 (1-2-3-4 實體索引對齊)
      */
     fun handleExternalAppUrl(view: WebView?, rawUrl: String?): Boolean {
-        if (rawUrl.isNullOrBlank()) return false
+        if (rawUrl.isNullOrBlank() || rawUrl == "#") return false
 
         val decodedUrl = try { java.net.URLDecoder.decode(rawUrl, "UTF-8") } catch (_: Exception) { rawUrl }
 
@@ -145,6 +151,11 @@ class AppWebViewClient(private val context: Context) : WebViewClient() {
 
         // 位置 1：Google 地圖導航喚醒 (google.com/maps)
         if (decodedUrl.contains("google.com/maps", ignoreCase = true) || decodedUrl.startsWith("geo:", ignoreCase = true)) {
+            return launchExternalIntent(view, decodedUrl)
+        }
+
+        // 位置 4：個人 / 產品介紹與外部網址攔截 (http:// 或 https://)
+        if (decodedUrl.startsWith("http://", ignoreCase = true) || decodedUrl.startsWith("https://", ignoreCase = true)) {
             return launchExternalIntent(view, decodedUrl)
         }
 

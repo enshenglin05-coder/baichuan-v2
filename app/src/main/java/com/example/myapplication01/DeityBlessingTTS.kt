@@ -40,6 +40,22 @@ object DeityBlessingTTS {
     }
 
     /**
+     * 前台手動觸發（當使用者主動點擊「發布」或「刷新」時呼叫）：
+     * 傳送本地經緯度座標，進行 6KM Haversine 距離檢查，符合即拉取封包並推入 FIFO 佇列順序播報
+     */
+    fun triggerUserActionPushPull(context: Context, userLat: Double?, userLng: Double?) {
+        init(context)
+        updateLanguage()
+        val lat = userLat ?: GlobalState.globalLatitude ?: LocationFlowManager.currentLocation?.first ?: 0.0
+        val lng = userLng ?: GlobalState.globalLongitude ?: LocationFlowManager.currentLocation?.second ?: 0.0
+
+        val payload = HurlungchuangTestManager.checkAndPullPayload(lat, lng)
+        if (!payload.isNullOrBlank()) {
+            ttsManager?.enqueueFifoPayload(payload, utteranceId = "TTS_GEOSPATIAL_PAYLOAD")
+        }
+    }
+
+    /**
      * 播放當前選定神明的祝福詞 (相容舊介面)
      */
     fun speakCurrentBlessing(context: Context) {
@@ -130,8 +146,9 @@ object DeityBlessingTTS {
             }
         }
 
-        val userLat = latitude ?: GlobalState.globalLatitude ?: LocationFlowManager.currentLocation?.first ?: 0.0
-        val userLng = longitude ?: GlobalState.globalLongitude ?: LocationFlowManager.currentLocation?.second ?: 0.0
+        val effectiveLoc = LocationFlowManager.getEffectiveLocation(latitude, longitude)
+        val userLat = effectiveLoc.first
+        val userLng = effectiveLoc.second
 
         ttsManager?.speakBlessingAndSequenceBackendBroadcasts(
             blessingText = textToSpeak,

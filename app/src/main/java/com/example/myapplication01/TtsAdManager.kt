@@ -26,7 +26,7 @@ object TtsAdManager {
         if (adList.isEmpty()) {
             val sampleAd = TTSAdModel(
                 id = "AD_HURLUNGCHUANG_01",
-                text = "新北市中和區廣濟宮聖王公守護你",
+                text = "中和廣濟宮開漳聖王聖王公守護您",
                 location = TTSAdLocation(
                     latitude = HurlungchuangTestManager.TARGET_LATITUDE,
                     longitude = HurlungchuangTestManager.TARGET_LONGITUDE
@@ -89,7 +89,7 @@ object TtsAdManager {
     /**
      * 尋找符合地點與狀態的可播放廣告
      */
-    fun findPlayableAd(userLat: Double?, userLng: Double?, radiusKm: Double = 10.0): TTSAdModel? {
+    fun findPlayableAd(userLat: Double?, userLng: Double?, radiusKm: Double = 6.0): TTSAdModel? {
         val activeAds = adList.filter { it.isPlayable }
         if (activeAds.isEmpty()) return null
 
@@ -115,7 +115,7 @@ object TtsAdManager {
     }
 
     /**
-     * 播報與「倒數第二個字」觸發完成後扣減剩餘次數 (播一次、拉一次、扣一次)，若歸零則觸發實體檔案自動搬運 (屍體歸位)
+     * 語音自然播放完成後扣減剩餘次數，若歸零則觸發實體檔案自動搬運 (歸位封存)
      */
     fun onAdPlayed(adId: String, context: Context? = null): Pair<TTSAdModel, RecycledAdRecord?>? {
         val index = adList.indexOfFirst { it.id == adId }
@@ -132,7 +132,7 @@ object TtsAdManager {
             var archiveRecord: RecycledAdRecord? = null
 
             if (updatedAd.remainingCount <= 0 || updatedAd.status == TTSAdStatus.ARCHIVED_ZERO) {
-                // 歸零自動搬運（屍體歸位）：
+                // 歸零自動搬運（歸位封存）：
                 // 1. 從主佇列 (adList) 移除
                 adList.removeAt(index)
                 LocalTtsAdDatabase.saveAds(adList, ctx)
@@ -147,12 +147,12 @@ object TtsAdManager {
                 // 3. 從記憶體倉儲移除
                 BaichuanRepository.removeCard(adId)
 
-                safeLogD("CARD_COUNT", "🔥 倒數第二字觸發成功！當前剩餘次數: " + remainingCount)
-                safeLogD("TtsAdManager", "📦 [歸零自動搬運/屍體歸位] 廣告 [$adId] 播放次數已歸零！已從主佇列中抹除，並成功將實體檔案搬移至專屬回收倉庫 (ArchiveID: ${archiveRecord.archiveId})")
+                safeLogD("CARD_COUNT", "🔥 [TTS 自然播放完成] 當前剩餘次數: " + remainingCount)
+                safeLogD("TtsAdManager", "📦 [歸零自動搬運/歸位封存] 廣告 [$adId] 播放次數已歸零！已從主佇列中抹除，並成功將實體檔案搬移至專屬回收倉庫 (ArchiveID: ${archiveRecord.archiveId})")
             } else {
                 adList[index] = updatedAd
                 LocalTtsAdDatabase.saveAds(adList, ctx)
-                safeLogD("CARD_COUNT", "🔥 倒數第二字觸發成功！當前剩餘次數: " + remainingCount)
+                safeLogD("CARD_COUNT", "🔥 [TTS 自然播放完成] 當前剩餘次數: " + remainingCount)
                 safeLogD("TtsAdManager", "🎯 廣告 [$adId] 觸發扣減完畢，剩餘次數: ${updatedAd.remainingCount}, 狀態: ${updatedAd.status}")
             }
 

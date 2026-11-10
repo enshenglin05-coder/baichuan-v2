@@ -485,20 +485,26 @@ class RequirementAdapter(
     }
 
     fun updateData(newCards: List<RequirementCard>, newLat: Double?, newLng: Double?) {
-        val sortedCards = newCards.sortedWith(
-            compareBy<RequirementCard> { card ->
-                if (!card.isPresetCard()) 0 else 1
-            }.thenByDescending { card ->
-                card.isSelfOwner
-            }.thenByDescending { card ->
-                card.created_at
-            }.thenByDescending { card ->
-                card.card_id
-            }
-        )
-        this.cards = sortedCards
+        val userCards = newCards.filter { !it.isPresetCard() }.sortedByDescending { it.created_at }
+        val defaultCards = newCards.filter { it.isPresetCard() }.sortedByDescending { it.created_at }
+        val finalList = userCards + defaultCards
+
+        safeLogD("CardSorting", "使用者發布卡片數: ${userCards.size}, 預設卡片數: ${defaultCards.size}, 總渲染數: ${finalList.size}")
+        finalList.forEachIndexed { index, card ->
+            safeLogD("CardSorting", "適配器排序後卡片[$index] ID: ${card.card_id}, 分類: ${card.category_tag}, 建立時間: ${card.created_at}")
+        }
+
+        this.cards = finalList
         this.userLat = newLat
         this.userLng = newLng
         notifyDataSetChanged()
+    }
+
+    private fun safeLogD(tag: String, msg: String) {
+        try {
+            android.util.Log.d(tag, msg)
+        } catch (_: Throwable) {
+            println("[$tag] $msg")
+        }
     }
 }

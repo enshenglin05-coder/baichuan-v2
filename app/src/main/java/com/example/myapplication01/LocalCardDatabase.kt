@@ -159,6 +159,31 @@ object LocalCardDatabase {
     }
 
     /**
+     * 清除本地端所有超過 12 小時生命週期的過期卡片 JSON 檔案
+     */
+    fun purgeExpiredLocalCards(context: Context? = null) {
+        try {
+            val directory = getDbDirectory(context)
+            val files = directory.listFiles { _, name -> name.endsWith(".json", ignoreCase = true) } ?: return
+            val now = System.currentTimeMillis()
+            for (file in files) {
+                try {
+                    val jsonStr = file.readText(Charsets.UTF_8)
+                    val card = gson.fromJson(jsonStr, RequirementCard::class.java)
+                    if (card != null && card.isExpired(now)) {
+                        file.delete()
+                        safeLogD("LocalCardDB", "🧹 [12小時本地自動抹除] 已刪除過期卡片實體檔案: ${file.name}")
+                    }
+                } catch (e: Exception) {
+                    // ignore parse error on cleanup
+                }
+            }
+        } catch (e: Exception) {
+            safeLogE("LocalCardDB", "❌ 清除本地過期卡片檔案失敗: ${e.message}")
+        }
+    }
+
+    /**
      * 從在地 JSON 資料庫移除指定卡片
      */
     fun deleteCard(cardId: String, context: Context? = null): Boolean {

@@ -13,6 +13,9 @@
         <package android:name="com.tencent.mm" />
         <package android:name="com.google.android.apps.maps" />
         <package android:name="com.google.android.apps.bard" />
+        <package android:name="com.openai.chatgpt" />
+        <package android:name="com.anthropic.claude" />
+        <package android:name="com.x.grok" />
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="https" />

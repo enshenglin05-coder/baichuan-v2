@@ -724,7 +724,6 @@ object BaichuanApiService {
         onSuccess: (List<RequirementCard>) -> Unit,
         onError: (String) -> Unit
     ) {
-        Log.d("CardRefresh", "🔥 強制觸發：10公里內經緯度符合，立即執行資料拉回與列表更新！")
         fetchNearbyCards(0.0, 0.0, 10000.0, emptyList()) { cloudCards ->
             runOnMain { onSuccess(cloudCards) }
         }
@@ -732,7 +731,7 @@ object BaichuanApiService {
 
     /**
      * 2. 全雲端資料庫全量拉取與下拉渲染邏輯（GET）：
-     * 徹底禁止本地沙盒載入與預設本地內容播放，嚴格從倉庫後端拉取 TTS 封包播放。
+     * 嚴格從倉庫後端拉取 TTS 封包播放。
      * 改採 GitHub Contents API 取得檔案清單，而非使用 Raw URL 讀取整個資料夾（Raw 不支援目錄清單）。
      */
     fun fetchNearbyCards(
@@ -742,7 +741,6 @@ object BaichuanApiService {
         categoryCodes: List<String>,
         onResult: (List<RequirementCard>) -> Unit
     ) {
-        // 徹底禁止本地沙盒：嚴格禁止從本地沙盒載入或預設本地內容播放
         safeLogD("BaichuanSyncAudit", "🌐 [多機同步拉取盤查] 開始從動態後端 API 拉取卡片資料 (確保多手機即時同步)...")
 
         val candidateUrls = mutableListOf<String>()
@@ -852,11 +850,20 @@ object BaichuanApiService {
                                 val fileBody = fileResp.body?.string() ?: ""
                                 fileResp.close()
                                 val cards = parseCardsFromJson(fileBody)
-                                if (cards.isNotEmpty()) {
-                                    parsedCards.addAll(cards)
-                                    parseResults[fileName] = "成功解析 ${cards.size} 筆 (IDs: ${cards.map { it.card_id }})"
+                                val validCards = mutableListOf<RequirementCard>()
+                                for (card in cards) {
+                                    if (card.isExpired()) {
+                                        safeLogD("BaichuanSyncAudit", "⌛ [12小時遠端自動抹除] 發現 GitHub 倉庫過期卡片 (${card.card_id} 超過12小時)，執行遠端 GitHub 與本地自動清理...")
+                                        deleteCard(card, {}, {})
+                                    } else {
+                                        validCards.add(card)
+                                    }
+                                }
+                                if (validCards.isNotEmpty()) {
+                                    parsedCards.addAll(validCards)
+                                    parseResults[fileName] = "成功解析 ${validCards.size} 筆 (過期已自動遠端抹除)"
                                 } else {
-                                    parseResults[fileName] = "解析成功但內容為空"
+                                    parseResults[fileName] = "卡片已全數超過 12 小時效期並啟動遠端自動抹除"
                                 }
                             } else {
                                 fileResp.close()
@@ -1115,7 +1122,7 @@ object BaichuanApiService {
     }
 
     /**
-     * 刪除卡片 (同步從真實雲端資料庫中抹除)
+     * 刪除卡片 (同步從真實雲端資料庫中抹除，帶有 SHA 與授權標頭)
      */
     fun deleteCard(card: RequirementCard, onSuccess: () -> Unit, onError: (String) -> Unit) {
         val cardId = card.card_id
@@ -1124,25 +1131,133 @@ object BaichuanApiService {
             return
         }
 
-        LocalCardDatabase.deleteCard(cardId, appContext)
+        val cleanCardId = if (cardId.endsWith(".json")) cardId.removeSuffix(".json") else cardId
+        val fullGithubApiUrl = "https://api.github.com/repos/enshenglin05-coder/baichuan-v2/contents/cards/$cleanCardId.json"
+        val token = UserIdentityManager.getAuthToken().ifBlank { GITHUB_TOKEN }
 
-        val deleteUrl = "$CARDS_ENDPOINT/$cardId.json"
-        val request = Request.Builder()
-            .url(deleteUrl)
-            .delete()
+        safeLogD("BaichuanGitHubAudit", "🗑️ [GitHub API 刪除盤查啟動] GET 取得檔案 SHA: $fullGithubApiUrl")
+
+        // 1. 先透過 GET 取得檔案的 SHA (GitHub 刪除 API 必須帶有 sha)
+        val getRequest = Request.Builder()
+            .url(fullGithubApiUrl)
+            .get()
+            .addHeader("Authorization", "Bearer $token")
+            .addHeader("Accept", "application/vnd.github+json")
+            .addHeader("X-GitHub-Api-Version", "2022-11-28")
             .build()
 
-        safeLogD("BaichuanAPI", "🗑️ [真實雲端資料庫刪除] DELETE $deleteUrl")
+        httpClient.newCall(getRequest).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                safeLogW("BaichuanGitHubAudit", "⚠️ [GitHub API 刪除] GET SHA 失敗: ${e.message}，嘗試直接執行遠端與本地刪除")
+                LocalCardDatabase.deleteCard(cardId, appContext)
+                executeRemoteDeleteWithoutSha(fullGithubApiUrl, cleanCardId, token, cardId, onSuccess)
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val code = response.code
+                    val respStr = response.body?.string() ?: ""
+                    response.close()
+
+                    if (code == 200) {
+                        val obj = JsonParser.parseString(respStr).asJsonObject
+                        val sha = obj.get("sha")?.asString ?: ""
+                        safeLogD("BaichuanGitHubAudit", "✅ [GitHub API 刪除] 成功取得檔案 SHA: $sha，開始發送 DELETE 請求")
+                        executeRemoteDeleteWithSha(fullGithubApiUrl, cleanCardId, sha, token, cardId, onSuccess)
+                    } else if (code == 404) {
+                        safeLogW("BaichuanGitHubAudit", "⚠️ [GitHub API 刪除] 遠端檔案已不存在 (404)，直接完成本地清除")
+                        LocalCardDatabase.deleteCard(cardId, appContext)
+                        runOnMain { onSuccess() }
+                    } else {
+                        safeLogW("BaichuanGitHubAudit", "⚠️ [GitHub API 刪除] GET SHA 回應 HTTP $code，嘗試直接刪除")
+                        LocalCardDatabase.deleteCard(cardId, appContext)
+                        executeRemoteDeleteWithoutSha(fullGithubApiUrl, cleanCardId, token, cardId, onSuccess)
+                    }
+                } catch (e: Exception) {
+                    safeLogE("BaichuanGitHubAudit", "❌ 解析檔案 SHA 異常: ${e.message}")
+                    LocalCardDatabase.deleteCard(cardId, appContext)
+                    executeRemoteDeleteWithoutSha(fullGithubApiUrl, cleanCardId, token, cardId, onSuccess)
+                }
+            }
+        })
+    }
+
+    private fun executeRemoteDeleteWithSha(
+        url: String,
+        cleanCardId: String,
+        sha: String,
+        token: String,
+        cardId: String,
+        onSuccess: () -> Unit
+    ) {
+        val deletePayload = mapOf(
+            "message" to "Delete card $cleanCardId",
+            "sha" to sha,
+            "branch" to "main"
+        )
+        val requestBodyJson = gson.toJson(deletePayload).toRequestBody(JSON_MEDIA_TYPE)
+
+        val request = Request.Builder()
+            .url(url)
+            .delete(requestBodyJson)
+            .addHeader("Authorization", "Bearer $token")
+            .addHeader("Accept", "application/vnd.github+json")
+            .addHeader("Content-Type", "application/json")
+            .addHeader("X-GitHub-Api-Version", "2022-11-28")
+            .build()
+
+        safeLogD("BaichuanGitHubAudit", "🗑️ [真實雲端 GitHub API 刪除] DELETE $url (帶有 SHA: $sha)")
 
         httpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                safeLogW("BaichuanAPI", "⚠️ [雲端刪除失敗] ${e.message} (已從在地資料庫移除)")
+                safeLogE("BaichuanGitHubAudit", "❌ [GitHub API 刪除連線失敗]: ${e.message}")
+                LocalCardDatabase.deleteCard(cardId, appContext)
                 runOnMain { onSuccess() }
             }
 
             override fun onResponse(call: Call, response: Response) {
-                safeLogD("BaichuanAPI", "✅ [真實雲端資料庫刪除完成] HTTP ${response.code}")
+                val code = response.code
+                val respStr = response.body?.string() ?: ""
                 response.close()
+
+                safeLogD("BaichuanGitHubAudit", "🌐 [GitHub API 刪除回應] HTTP $code, Response: $respStr")
+                LocalCardDatabase.deleteCard(cardId, appContext)
+
+                runOnMain { onSuccess() }
+            }
+        })
+    }
+
+    private fun executeRemoteDeleteWithoutSha(
+        url: String,
+        cleanCardId: String,
+        token: String,
+        cardId: String,
+        onSuccess: () -> Unit
+    ) {
+        val deletePayload = mapOf(
+            "message" to "Delete card $cleanCardId",
+            "branch" to "main"
+        )
+        val requestBodyJson = gson.toJson(deletePayload).toRequestBody(JSON_MEDIA_TYPE)
+
+        val request = Request.Builder()
+            .url(url)
+            .delete(requestBodyJson)
+            .addHeader("Authorization", "Bearer $token")
+            .addHeader("Accept", "application/vnd.github+json")
+            .addHeader("Content-Type", "application/json")
+            .addHeader("X-GitHub-Api-Version", "2022-11-28")
+            .build()
+
+        httpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                LocalCardDatabase.deleteCard(cardId, appContext)
+                runOnMain { onSuccess() }
+            }
+            override fun onResponse(call: Call, response: Response) {
+                response.close()
+                LocalCardDatabase.deleteCard(cardId, appContext)
                 runOnMain { onSuccess() }
             }
         })
@@ -1155,10 +1270,10 @@ object BaichuanApiService {
     fun matchAndConsumeTtsAd(
         latitude: Double,
         longitude: Double,
-        radiusKm: Double = 10.0,
+        radiusKm: Double = 6.0,
         onResult: (matchedAd: TTSAdModel?, archiveRecord: RecycledAdRecord?) -> Unit
     ) {
-        safeLogD("BaichuanAPI", "☁️ [TTS 播報與倒數第二字觸發] 經緯度: ($latitude, $longitude), 對接雲端資料庫")
+        safeLogD("BaichuanAPI", "☁️ [TTS 播報與 6KM 範圍比對] 經緯度: ($latitude, $longitude), 對接雲端資料庫")
 
         val distance = if (latitude != 0.0 && longitude != 0.0) {
             DistanceUtils.calculateDistance(
@@ -1168,16 +1283,6 @@ object BaichuanApiService {
                 longitude
             )
         } else 0.0
-
-        if (distance <= 10.0 || radiusKm <= 10.0) {
-            Log.d("CardRefresh", "🔥 強制觸發：10公里內經緯度符合，立即執行資料拉回與列表更新！")
-        }
-
-        // 立即在主執行緒強制讀取本地合併資料並執行介面更新（與遠端網路請求完全脫鉤）
-        Handler(Looper.getMainLooper()).post {
-            // 直接載入本地合併/快取資料並更新列表
-            Log.d("CardRefresh", "🔥 強制解耦更新成功：已直接將本地資料渲染至畫面！")
-        }
 
         // 遠端網路請求僅作背景同步，發生 404 僅作記錄，不准阻斷流程或影響本地畫面重新整理
         fetchNearbyCards(latitude, longitude, radiusKm, emptyList()) { cloudCards ->
@@ -1192,7 +1297,7 @@ object BaichuanApiService {
                     val archiveRecord = resultPair?.second
 
                     if (updatedAd != null) {
-                        safeLogD("CARD_COUNT", "🔥 [TTS 倒數第二字觸發] 廣告 ID: ${updatedAd.id}, 當前剩餘播放次數: ${updatedAd.remainingCount}/${updatedAd.totalCount}")
+                        safeLogD("CARD_COUNT", "🔥 [TTS 播放完成] 廣告 ID: ${updatedAd.id}, 當前剩餘播放次數: ${updatedAd.remainingCount}/${updatedAd.totalCount}")
                         safeLogD("TtsAdManager", "🎯 廣告計數更新成功: 剩餘 ${updatedAd.remainingCount} 次，狀態: ${updatedAd.status}")
                     }
 
@@ -1229,7 +1334,7 @@ object BaichuanApiService {
     }
 
     /**
-     * 真實後端 TTS 檔案與卡片封包排查與拉回函式 (禁止沙盒模擬，以實際為主)
+     * 真實後端 TTS 檔案與卡片封包排查與拉回函式
      * 發起實際 HTTP 請求排查後端端點是否有可拉回播報的 TTS 檔案與卡片封包，並將排查結果詳細列印日誌。
      */
     fun auditAndPullBackendTtsFiles(context: Context, onAudited: ((Boolean, Int, String) -> Unit)? = null) {
@@ -1358,7 +1463,7 @@ object BaichuanApiService {
 
     /**
      * 手機端發送格式、電腦端/倉庫後端標準格式與後端輸出格式之最後一次完整比對盤查
-     * 檢查欄位對齊、Gson 序列化與反序列化相容性，並將比對結果嚴格列印至日誌中（禁止沙盒模擬）。
+     * 檢查欄位對齊、Gson 序列化與反序列化相容性，並將比對結果嚴格列印至日誌中。
      */
     fun auditFormatCompatibility(card: RequirementCard) {
         val jsonOutput = gson.toJson(card)

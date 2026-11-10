@@ -73,4 +73,41 @@ object Grid88Formatter {
             MatchingCore.TYPE_A_DEMAND
         }
     }
+
+    /**
+     * 生成 96 項格子全部對齊的垂直大綱與引導
+     */
+    fun generate96GridOutline(context: android.content.Context? = null): String {
+        val sb = StringBuilder()
+        sb.append("【百川 12大項 96格網格對齊大綱與引導】\n")
+        for (main in 1..TOTAL_MAIN_CATEGORIES) {
+            val mainName = when (main) {
+                1 -> "1. 食 (餐飲美食)"
+                2 -> "2. 衣 (潮流服飾)"
+                3 -> "3. 住 (租屋裝潢)"
+                4 -> "4. 行 (交通跑腿)"
+                5 -> "5. 教育 (托育學習)"
+                6 -> "6. 娛樂 (休閒娛樂)"
+                7 -> "7. 醫療 (健康照護)"
+                8 -> "8. 二手 (閒置 3C)"
+                9 -> "9. 寵物 (寵物服務)"
+                10 -> "10. 服務 (專業短工)"
+                11 -> "11. 公益 (公益關懷)"
+                12 -> "12. 信仰 (信仰祈福)"
+                else -> "$main. 綜合項目"
+            }
+            sb.append("--- $mainName ---\n")
+            val subItems = CategoryRepository.getSubItems(main.toString())
+            for (sub in 1..SUB_CATEGORIES_PER_MAIN) {
+                val gridCode = "$main-$sub"
+                val subName = if (sub - 1 in subItems.indices) {
+                    CategoryRepository.getCategoryTitle(gridCode, context)
+                } else {
+                    "格子 $gridCode"
+                }
+                sb.append("• [$gridCode] $subName\n")
+            }
+        }
+        return sb.toString()
+    }
 }

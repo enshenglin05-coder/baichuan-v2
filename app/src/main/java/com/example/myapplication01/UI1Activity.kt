@@ -99,7 +99,7 @@ class UI1Activity : BaseActivity() {
 
         DeityBlessingTTS.init(this)
 
-        // 禁止沙盒模擬，執行實際後端 TTS 檔案與封包排查並列印日誌
+        // 執行實際後端 TTS 檔案與封包排查並列印日誌
         BaichuanApiService.auditAndPullBackendTtsFiles(this) { success, count, url ->
             android.util.Log.d("BaichuanUI1", "🎯 [HTTP 成功 - 後端 TTS 排查完成] 成功=$success | 實際取得 JSON 數量=$count | 有效端點=$url")
         }
@@ -423,7 +423,8 @@ class UI1Activity : BaseActivity() {
     }
 
     private fun playTTS(text: String) {
-        DeityBlessingTTS.speakBlessingAndSequenceBackendBroadcasts(this, text)
+        // 恢復本地端選定卡片的心靈祈福祝福詞播報
+        DeityBlessingTTS.speakCustomOrCurrent(this, text)
     }
 
     override fun onDestroy() {

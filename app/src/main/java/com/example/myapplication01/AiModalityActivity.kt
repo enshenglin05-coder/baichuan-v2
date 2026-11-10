@@ -291,42 +291,38 @@ class AiModalityActivity : BaseActivity() {
                 }
                 setOnClickListener {
                     try {
-                        // 【絕對修正規範】：1. 徹底移除任何文字帶入 (Zero-Text Buffer)，保持 100% 純淨空白
                         val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("", ""))
-
-                        // 2. 本地端 App (Package) 優先跳轉策略
-                        val packageName = when (modality.id) {
-                            "ChatGPT" -> "com.openai.chatgpt"
-                            "GEMINI" -> "com.google.android.apps.bard"
-                            "CLAUDE" -> "com.anthropic.claude"
-                            "GROK" -> "com.x.android"
-                            else -> null
+                        val copiedText = clipboard.primaryClip?.getItemAt(0)?.text?.toString() ?: ""
+                        
+                        // 確保透過 ClipboardManager 確實寫入系統剪貼簿
+                        if (copiedText.isNotBlank()) {
+                            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Baichuan Pack", copiedText))
                         }
-
-                        var launched = false
-                        if (packageName != null) {
-                            try {
-                                val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
-                                if (launchIntent != null) {
-                                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    startActivity(launchIntent)
-                                    launched = true
-                                }
-                            } catch (e: Exception) {
-                                // Fallback below
-                            }
-                        }
-
-                        if (!launched) {
-                            // 第二順位 (Fallback): 乾淨網頁連結跳轉 (絕對無 q= 或 EXTRA_TEXT)
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(modality.jumpUrl)).apply {
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            }
-                            startActivity(intent)
-                        }
+                        Toast.makeText(this@AiModalityActivity, "已帶入剪貼簿", Toast.LENGTH_SHORT).show()
                     } catch (e: Exception) {
-                        Toast.makeText(this@AiModalityActivity, "無法開啟 AI 應用程式", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@AiModalityActivity, "無法寫入剪貼簿", Toast.LENGTH_SHORT).show()
+                    }
+
+                    // 啟動對應 AI 應用程式或網頁版 (含 ActivityNotFoundException 防錯與 Web 備援)
+                    val packageName = when (modality.id) {
+                        "ChatGPT" -> "com.openai.chatgpt"
+                        "GEMINI" -> "com.google.android.apps.bard"
+                        "CLAUDE" -> "com.anthropic.claude"
+                        "GROK" -> "com.x.grok"
+                        else -> ""
+                    }
+
+                    try {
+                        val intent = if (packageName.isNotEmpty()) {
+                            packageManager.getLaunchIntentForPackage(packageName)
+                                ?: Intent(Intent.ACTION_VIEW, Uri.parse(modality.jumpUrl))
+                        } else {
+                            Intent(Intent.ACTION_VIEW, Uri.parse(modality.jumpUrl))
+                        }
+                        startActivity(intent)
+                    } catch (e: Exception) {
+                        val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(modality.jumpUrl))
+                        startActivity(browserIntent)
                     }
                 }
             }

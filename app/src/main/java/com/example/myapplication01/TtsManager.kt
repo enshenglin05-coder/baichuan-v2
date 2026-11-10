@@ -22,9 +22,12 @@ class TtsManager(
     private var pendingSpeech: Triple<String, Int, String>? = null
 
     private var currentSpeakingText: String = ""
-    private var hasTriggeredSecondToLast = false
     private var isSpeaking = false
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    // FIFO 語音播報佇列 (無中斷、無字數監聽器，自然播放完畢後自動觸發下一筆)
+    private val fifoPayloadQueue = java.util.concurrent.ConcurrentLinkedQueue<Pair<String, String>>()
+    private var isFifoProcessing = false
 
     // 封包撥報序續撥佇列與狀態控制
     private val broadcastQueue = java.util.concurrent.CopyOnWriteArrayList<String>()
@@ -34,14 +37,28 @@ class TtsManager(
     private var sequenceCompleteCallback: (() -> Unit)? = null
 
     /**
-     * 倒數第二字觸發監聽器：當 TTS 正要發音至倒數第二字時會回呼此 Lambda
-     */
-    var onSecondToLastCharListener: ((utteranceId: String, text: String, charIndex: Int) -> Unit)? = null
-
-    /**
      * 卡片重新整理回調：當背景拉回與列表更新完成時觸發
      */
     var onCardRefreshTriggered: (() -> Unit)? = null
+
+    /**
+     * 推入 FIFO 語音播報佇列 (標準無中斷 FIFO 佇列)
+     */
+    fun enqueueFifoPayload(text: String, utteranceId: String = "TTS_FIFO_PAYLOAD") {
+        if (text.isBlank()) return
+        fifoPayloadQueue.add(Pair(text, utteranceId))
+        Log.d("TtsManager", "📥 [FIFO 佇列入隊] \"$text\" (當前佇列長度: ${fifoPayloadQueue.size})")
+        mainHandler.post { processNextFifoPayload() }
+    }
+
+    private fun processNextFifoPayload() {
+        if (isSpeaking || isFifoProcessing) return
+        val item = fifoPayloadQueue.poll() ?: return
+        isFifoProcessing = true
+        val (text, utteranceId) = item
+        Log.d("TtsManager", "▶️ [FIFO 順序播放開始] utteranceId=$utteranceId, 內容=\"$text\"")
+        speak(text, TextToSpeech.QUEUE_FLUSH, utteranceId)
+    }
 
     /**
      * 強制觸發背景列表重新整理與資料拉回 (Refresh/Pull)
@@ -61,17 +78,12 @@ class TtsManager(
             lng
         )
 
-        if (distance <= 10.0) {
-            Log.d("CardRefresh", "🔥 強制觸發：10公里內經緯度符合，立即執行資料拉回與列表更新！")
-        } else {
-            Log.d("CardRefresh", "🔥 強制觸發：成功執行背景拉回與列表更新！")
-        }
+        Log.d("CardRefresh", "手動觸發資料拉回與列表更新，距離: ${distance}km")
 
-        // 立即在主執行緒強制讀取本地合併資料並執行介面更新（與遠端網路請求完全脫鉤）
+        // 立即在主執行緒讀取本地快取資料並執行介面更新
         mainHandler.post {
-            // 直接載入本地合併/快取資料並更新列表
             onCardRefreshTriggered?.invoke()
-            Log.d("CardRefresh", "🔥 強制解耦更新成功：已直接將本地資料渲染至畫面！")
+            Log.d("CardRefresh", "手動拉取完成，已更新本地資料與渲染畫面")
         }
 
         BaichuanApiService.fetchNearbyCards(lat, lng, 50.0, emptyList()) { cloudCards ->
@@ -81,7 +93,7 @@ class TtsManager(
             BaichuanRepository.ensurePresetCardsLoaded()
             val jsonCount = cloudCards.size
             val filenames = cloudCards.map { "${it.card_id}.json" }
-            Log.d("CardRefresh", "🌐 [HTTP 成功 - 同步完成] 實際取得 JSON 數量: $jsonCount | 檔名列表: $filenames | 解析結果: 成功解析 $jsonCount 筆卡片與 TTS 封包")
+            Log.d("CardRefresh", "🌐 [API 回傳狀態] 手動拉取完成，實際取得 JSON 數量: $jsonCount | 檔名列表: $filenames")
         }
     }
 
@@ -121,16 +133,19 @@ class TtsManager(
         tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String) {
                 isSpeaking = true
-                hasTriggeredSecondToLast = false
                 Log.d("TtsManager", "🎙️ TTS 開始播報 utteranceId=$utteranceId, 全文長度=${currentSpeakingText.length}")
-                // TTS 語音正式開始播報（onStart 執行的瞬間），立即在背景強制呼叫一次列表重新整理與資料拉回 (Refresh/Pull)
-                triggerCardRefreshAndPull()
             }
 
             override fun onDone(utteranceId: String) {
                 isSpeaking = false
-                hasTriggeredSecondToLast = false
+                isFifoProcessing = false
                 Log.d("TtsManager", "✅ TTS 播報完成 utteranceId=$utteranceId，解鎖下一次播報狀態")
+
+                // 語音自然播放完成時觸發倒數次數扣減
+                if (utteranceId.startsWith("TTS_") || utteranceId == "DEITY_BLESSING" || utteranceId == "AD_HURLUNGCHUANG_01") {
+                    HurlungchuangTestManager.onPlaybackCompleted()
+                    TtsAdManager.onAdPlayed("AD_HURLUNGCHUANG_01")
+                }
 
                 if (isSequencingActive) {
                     if (utteranceId == "DEITY_BLESSING") {
@@ -142,12 +157,15 @@ class TtsManager(
                         mainHandler.post { playNextSequenceItem() }
                     }
                 }
+
+                // 順序播放 FIFO 佇列下一筆
+                mainHandler.post { processNextFifoPayload() }
             }
 
             @Deprecated("Deprecated in Java")
             override fun onError(utteranceId: String) {
                 isSpeaking = false
-                hasTriggeredSecondToLast = false
+                isFifoProcessing = false
                 Log.e("TtsManager", "❌ TTS 播報失敗 utteranceId=$utteranceId，解鎖狀態")
 
                 if (isSequencingActive) {
@@ -159,6 +177,8 @@ class TtsManager(
                         mainHandler.post { playNextSequenceItem() }
                     }
                 }
+
+                mainHandler.post { processNextFifoPayload() }
             }
 
             override fun onRangeStart(utteranceId: String, start: Int, end: Int, frame: Int) {
@@ -199,10 +219,6 @@ class TtsManager(
      */
     fun speak(text: String, queueMode: Int = TextToSpeech.QUEUE_FLUSH, utteranceId: String = "TTS_ID") {
         currentSpeakingText = text
-        hasTriggeredSecondToLast = false
-
-        // 只要 speak 執行或 TTS 開始播報的瞬間，就立刻在背景強制呼叫一次列表重新整理與資料拉回 (Refresh/Pull)
-        triggerCardRefreshAndPull()
 
         if (isReady && tts != null) {
             try {
@@ -309,7 +325,6 @@ class TtsManager(
         val part2Text = "距離您約 $formattedDistance 公里，內容為：$content"
 
         currentSpeakingText = "$part1Text $part2Text"
-        hasTriggeredSecondToLast = false
 
         try {
             // 1. 播報第一段
@@ -359,22 +374,33 @@ class TtsManager(
         isBackendFetchPending = true
         sequenceCompleteCallback = onSequenceComplete
 
-        Log.d("TtsManager", "🔗 [發送後端連結請求] 開始向後端發送請求，等待發回封包撥報序，並優先播報心靈祝福辭: \"$blessingText\"")
+        Log.d("TtsManager", "🔗 [發送經緯度比對與後端連結] 座標($latitude, $longitude)，發送請求比對，等待發回封包與排序，並優先播報心靈祝福辭: \"$blessingText\"")
 
-        // 1. 連結後端請求發回封包撥報序
+        // 1. 經緯度比對：檢查區域 6KM 封包比對
+        val localPayload = HurlungchuangTestManager.checkAndPullPayload(latitude, longitude)
+
+        // 2. 連結後端請求發回封包撥報序與排序
         BaichuanApiService.fetchNearbyCards(latitude, longitude, radiusKm, categories) { cloudCards ->
             mainHandler.post {
                 isBackendFetchPending = false
-                val texts = cloudCards.map { card ->
+                val texts = mutableListOf<String>()
+
+                if (!localPayload.isNullOrBlank()) {
+                    texts.add(localPayload)
+                }
+
+                val cloudTexts = cloudCards.map { card ->
                     val dist = if (card.gps_lat != 0.0 && card.gps_lng != 0.0) {
                         DistanceUtils.calculateDistance(card.gps_lat, card.gps_lng, latitude, longitude)
                     } else 0.0
                     val distStr = if (dist > 0) String.format(Locale.getDefault(), "距離 %.1f 公里", dist) else ""
                     listOf(card.category_tag, distStr, card.description).filter { it.isNotBlank() }.joinToString("，")
                 }
+                texts.addAll(cloudTexts)
+
                 broadcastQueue.addAll(texts)
                 onBackendResponse?.invoke(cloudCards)
-                Log.d("TtsManager", "🔗 [後端連結請求發回] 成功發回封包撥報序，共收到 ${cloudCards.size} 筆，已加入續撥佇列等待心靈祝福辭撥完後續接播放")
+                Log.d("TtsManager", "🔗 [後端連結請求發回] 經緯度比對符合，成功發回封包與排序，共收到 ${texts.size} 筆，已加入續撥佇列等待心靈祝福辭撥完後續接播放")
 
                 // 若心靈祝福辭在後端請求返回前已撥完，在此立即啟動續撥
                 if (isBlessingDone && isSequencingActive) {
@@ -383,7 +409,7 @@ class TtsManager(
             }
         }
 
-        // 2. 優先播報心靈祝福辭
+        // 3. 優先播報心靈祝福辭
         speak(blessingText, TextToSpeech.QUEUE_FLUSH, "DEITY_BLESSING")
     }
 

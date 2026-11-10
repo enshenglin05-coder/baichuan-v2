@@ -7,16 +7,16 @@ import android.util.Log
  * 唯一主控與編譯輸入控制器 (IDE Master TTS Controller)
  * 供開發者在 IDE 中直接透過原生 Kotlin 程式碼進行編譯設定與執行核心運作流程：
  *
- * 1. 【唯一主控與編譯輸入】 (IDE 控管)：
+ * 1. 【前台觸發與 6KM 範圍檢查】：
  *    - 所有要播報的文字內容 (CONFIG_TEXT_TO_SPEAK)
  *    - 目標經緯度 (CONFIG_TARGET_LATITUDE, CONFIG_TARGET_LONGITUDE)
- *    - 套用距離範圍 (CONFIG_RADIUS_KM)
+ *    - 套用 Haversine 距離範圍 (CONFIG_RADIUS_KM)
  *    - 初始與剩餘播放次數 (CONFIG_INITIAL_COUNT)
  *
- * 2. 【核心運作流程】 (播一次、拉一次、扣一次)：
- *    - 經緯度比對成功後進行 TTS 播報。
- *    - 鎖定播報內容的 「倒數第二個字」 瞬間，精準觸發次數扣減 (10 ➔ 9 ➔ ...)。
- *    - 歸零自動搬運（屍體歸位）：當次數扣減至 0 歸零時，系統將該張卡片資料實體從主資料夾搬移、推送到專屬已封存/回收倉庫存放。
+ * 2. 【核心運作流程】 (FIFO 佇列 & 播放完畢扣減歸零)：
+ *    - 經緯度比對成功後拉取語音封包入隊 FIFO 順序播報。
+ *    - 無中斷、無字數監聽器，自然播放完畢後扣減次數 (100 ➔ 99 ➔ ... ➔ 0)。
+ *    - 歸零自動搬運（歸位）：當次數扣減至 0 歸零時，系統將該張卡片資料實體從主資料夾搬移、推送到專屬已封存/回收倉庫存放。
  */
 object IdeMasterTtsController {
 
@@ -24,10 +24,10 @@ object IdeMasterTtsController {
     // 1. 唯一主控與編譯輸入（IDE 控管）設定區
     //    開發者可以在 IDE 中直接修改以下常數與參數進行編譯與實體環境測試
     // =========================================================================
-    var CONFIG_TEXT_TO_SPEAK: String = "新北市中和區廣濟宮聖王公守護你"
-    var CONFIG_TARGET_LATITUDE: Double = 25.002528
-    var CONFIG_TARGET_LONGITUDE: Double = 121.497528
-    var CONFIG_RADIUS_KM: Double = 10.0
+    var CONFIG_TEXT_TO_SPEAK: String = "中和廣濟宮開漳聖王聖王公守護您"
+    var CONFIG_TARGET_LATITUDE: Double = 25.002457
+    var CONFIG_TARGET_LONGITUDE: Double = 121.497370
+    var CONFIG_RADIUS_KM: Double = 6.0
     var CONFIG_INITIAL_COUNT: Int = 100
     var CONFIG_CARD_ID: String = "GANGJIGONG_100_COUNT_CARD"
 
@@ -88,10 +88,10 @@ object IdeMasterTtsController {
     }
 
     /**
-     * 2. 核心運作流程 (播一次、拉一次、扣一次) 實體執行入口：
-     * - GPS 經緯度距離比對
-     * - 鎖定播報內容的「倒數第二個字」瞬間進行精準觸發與次數扣減
-     * - 次數歸零時自動將主資料夾的實體卡片檔案搬移（屍體歸位）至專屬回收倉庫
+     * 2. 核心運作流程 實體執行入口：
+     * - GPS 經緯度距離比對 (Haversine 演算法)
+     * - 自然播放完成瞬間進行次數扣減
+     * - 次數歸零時自動將主資料夾的實體卡片檔案搬移（歸位）至專屬回收倉庫
      */
     fun executeCoreFlow(
         currentLat: Double,
@@ -135,34 +135,32 @@ object IdeMasterTtsController {
             return false
         }
 
-        // 步驟 B: 鎖定播報內容的「倒數第二個字」瞬間，精準觸發次數扣減
         val textToSpeak = ad.text.ifBlank { CONFIG_TEXT_TO_SPEAK }
         val secondToLastChar = if (textToSpeak.length >= 2) textToSpeak[textToSpeak.length - 2] else ' '
 
-        // 執行次數扣減 (播一次、拉一次、扣一次)
+        // 執行次數扣減
         val resultPair = TtsAdManager.onAdPlayed(CONFIG_CARD_ID, context)
         if (resultPair != null) {
             val (updatedAd, archiveRecord) = resultPair
             val remainingCount = updatedAd.remainingCount
-            val triggerLog = "🎯 [倒數第二字精準觸發] 鎖定倒數第二字 '$secondToLastChar'，剩餘次數扣減: ${ad.remainingCount} ➔ $remainingCount"
+            val triggerLog = "🎯 [TTS 播放完成扣減] 剩餘次數扣減: ${ad.remainingCount} ➔ $remainingCount"
             try {
                 Log.d("IdeMasterController", triggerLog)
-                Log.d("CARD_COUNT", "🔥 倒數第二字觸發成功！當前剩餘次數: " + remainingCount)
+                Log.d("CARD_COUNT", "🔥 [TTS 播放完成] 當前剩餘次數: " + remainingCount)
             } catch (_: Throwable) {
                 println("[IdeMasterController] $triggerLog")
-                println("[CARD_COUNT] 🔥 倒數第二字觸發成功！當前剩餘次數: " + remainingCount)
+                println("[CARD_COUNT] 🔥 [TTS 播放完成] 當前剩餘次數: " + remainingCount)
             }
 
             onSecondToLastCharTriggered?.invoke(updatedAd.remainingCount, secondToLastChar)
 
-            // 步驟 C: 歸零自動搬運（屍體歸位）
+            // 歸零自動搬運 (屍體歸位)
             if ((updatedAd.status == TTSAdStatus.ARCHIVED_ZERO) || (updatedAd.remainingCount <= 0)) {
-                // 將該張已播完的卡片資料實實在在地從主資料夾 (local_cards/) 搬移、推送到專屬的已封存/回收倉庫 (archived_cards/)
                 LocalCardDatabase.archiveCardFile(CONFIG_CARD_ID, context)
                 BaichuanRepository.removeCard(CONFIG_CARD_ID)
 
                 if (archiveRecord != null) {
-                    val archiveLog = "📦 [屍體歸位完成] 卡片 [$CONFIG_CARD_ID] 次數已歸零！實體檔案已成功搬移至專屬回收倉庫，ArchiveID: ${archiveRecord.archiveId}"
+                    val archiveLog = "📦 [歸位完成] 卡片 [$CONFIG_CARD_ID] 次數已歸零！實體檔案已成功搬移至專屬回收倉庫，ArchiveID: ${archiveRecord.archiveId}"
                     try {
                         Log.d("IdeMasterController", archiveLog)
                     } catch (_: Throwable) {
