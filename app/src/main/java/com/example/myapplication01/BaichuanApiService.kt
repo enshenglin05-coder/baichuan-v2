@@ -744,12 +744,12 @@ object BaichuanApiService {
         safeLogD("BaichuanSyncAudit", "🌐 [多機同步拉取盤查] 開始從動態後端 API 拉取卡片資料 (確保多手機即時同步)...")
 
         val candidateUrls = mutableListOf<String>()
-        // 1. 核心盤查：優先指向 GitHub API 取得 cards 檔案清單 (取代舊的 Raw URL 讀取資料夾)
-        candidateUrls.add("https://api.github.com/repos/enshenglin05-coder/baichuan-v2/contents/cards")
-        
-        // 2. 其次指向動態可讀寫的 Vercel Serverless API 端點
+        // 1. 核心盤查：優先指向雲端邊緣 (Vercel Serverless API) 雲端唯讀端點，減輕 Git 後端高頻讀取與重新整理負擔
         candidateUrls.add("https://baichuan-v2-uqih.vercel.app/api/cards")
         candidateUrls.add("https://baichuan-v2-uqih.vercel.app/cards")
+        
+        // 2. 其次指向 GitHub Contents API 備援讀取
+        candidateUrls.add("https://api.github.com/repos/enshenglin05-coder/baichuan-v2/contents/cards")
 
         // 3. 備援讀取端點
         val baseEndpoint = getActiveCardsEndpoint().removeSuffix("/")
@@ -1342,11 +1342,11 @@ object BaichuanApiService {
         val baseUrl = getActiveBaseUrl().removeSuffix("/")
 
         val candidateUrls = mutableListOf<String>()
-        // 1. 優先指向 GitHub API 取得 cards 檔案清單 (取代舊的 Raw URL 讀取資料夾)
-        candidateUrls.add("https://api.github.com/repos/enshenglin05-coder/baichuan-v2/contents/cards")
-        // 2. 其次指向動態 Vercel Serverless API 端點
+        // 1. 優先指向雲端邊緣 (Vercel Serverless API) 雲端唯讀端點，進行高效 TTS 封包拉取
         candidateUrls.add("https://baichuan-v2-uqih.vercel.app/api/cards")
         candidateUrls.add("https://baichuan-v2-uqih.vercel.app/cards")
+        // 2. 其次指向 GitHub API 備援
+        candidateUrls.add("https://api.github.com/repos/enshenglin05-coder/baichuan-v2/contents/cards")
         // 3. 備援單一 JSON 端點
         candidateUrls.add("$baseEndpoint/cards.json")
         candidateUrls.add("$baseUrl/cards.json")
