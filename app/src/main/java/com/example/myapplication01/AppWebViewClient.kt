@@ -3,6 +3,7 @@ package com.example.myapplication01
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -13,15 +14,20 @@ class WebAppInterface(private val context: Context) {
 
     @JavascriptInterface
     fun dialNumber(phoneNumber: String) {
+        val cleaned = PhoneActionHelper.cleanPhoneNumber(phoneNumber)
+        if (!PhoneActionHelper.isValidPhoneNumber(cleaned)) {
+            Toast.makeText(context, "無效的電話號碼", Toast.LENGTH_SHORT).show()
+            return
+        }
         // 純本地 Intent 喚醒，完全不需要連網
         val intent = Intent(Intent.ACTION_DIAL).apply {
-            data = Uri.parse("tel:$phoneNumber")
+            data = Uri.parse("tel:$cleaned")
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
         try {
             context.startActivity(intent)
         } catch (_: Exception) {
-            PhoneActionHelper.openDialer(context, phoneNumber)
+            PhoneActionHelper.openDialer(context, cleaned)
         }
     }
 
@@ -40,6 +46,9 @@ class AppWebViewClient(private val context: Context) : WebViewClient() {
         if (url == "#" || url.endsWith("/#")) {
             return true
         }
+        if (url.contains("expand_section") || url.contains("#expand_section_")) {
+            if (handleExpandSectionUrl(view, url)) return true
+        }
         if (url.startsWith("http://", ignoreCase = true)) {
             url = "https://" + url.substring(7)
         }
@@ -55,10 +64,83 @@ class AppWebViewClient(private val context: Context) : WebViewClient() {
         if (url == "#" || url?.endsWith("/#") == true) {
             return true
         }
+        if (url != null && (url.contains("expand_section") || url.contains("#expand_section_"))) {
+            if (handleExpandSectionUrl(view, url)) return true
+        }
         if (handleTelUrl(view, url) || handleExternalAppUrl(view, url)) {
             return true
         }
         return super.shouldOverrideUrlLoading(view, url)
+    }
+
+    /**
+     * 當使用者點擊對話框內【是】按鈕時，動態拉取雲端邊緣該區段完整卡片並展開渲染
+     */
+    fun handleExpandSectionUrl(view: WebView?, rawUrl: String?): Boolean {
+        if (rawUrl.isNullOrBlank()) return false
+        if (!rawUrl.contains("expand_section")) return false
+
+        val ctx = view?.context ?: context
+        val (sectionCode, drawerType) = parseSectionCodeAndDrawerType(rawUrl)
+
+        try {
+            android.widget.Toast.makeText(ctx, "正在從雲端邊緣拉取 $sectionCode 區段卡片...", android.widget.Toast.LENGTH_SHORT).show()
+        } catch (_: Exception) {}
+
+        BaichuanApiService.fetchCardsByCategory(sectionCode) { cloudCards ->
+            val userLat = GlobalState.globalLatitude
+            val userLng = GlobalState.globalLongitude
+            val deviceId = UserIdentityManager.getMyDeviceId(ctx)
+
+            val localCards = BaichuanRepository.getFilteredCards(
+                userLat, userLng, listOf(sectionCode), drawerType, deviceId, 50.0
+            )
+
+            val mergedMap = LinkedHashMap<String, RequirementCard>()
+            localCards.forEach { mergedMap[it.card_id] = it }
+            cloudCards.filter { it.category_code == sectionCode }.forEach { mergedMap[it.card_id] = it }
+
+            var finalCards = mergedMap.values.toList()
+            if (finalCards.isEmpty()) {
+                finalCards = DrawerBatchTester.getTestCardsForDrawer11().filter { it.category_code == sectionCode }
+                if (finalCards.isEmpty()) {
+                    finalCards = listOf(RequirementCard(category_code = sectionCode, drawer_type = drawerType, description = "$sectionCode 區段卡片數據"))
+                }
+            }
+
+            val draftModels = finalCards.mapIndexed { idx, item ->
+                DraftCardModel.fromRequirementCard(item, idx + 1)
+            }
+
+            val expandedHtml = VerticalCardRenderer.packageAndRenderJsonWithOutline(ctx, draftModels)
+            view?.post {
+                view.loadDataWithBaseURL(null, expandedHtml, "text/html", "UTF-8", null)
+            }
+        }
+        return true
+    }
+
+    fun parseSectionCodeAndDrawerType(rawUrl: String): Pair<String, String> {
+        return Companion.parseSectionCodeAndDrawerType(rawUrl)
+    }
+
+    companion object {
+        fun parseSectionCodeAndDrawerType(rawUrl: String): Pair<String, String> {
+            val fragment = rawUrl.substringAfter("expand_section_", "").trim()
+            if (fragment.isBlank()) return Pair("2-1", "1A")
+            val tokens = fragment.split("_", "-")
+            return when {
+                tokens.size >= 3 && tokens[0].all { it.isDigit() } && tokens[1].all { it.isDigit() } -> {
+                    Pair("${tokens[0]}-${tokens[1]}", tokens[2].uppercase())
+                }
+                tokens.size >= 2 -> {
+                    val code = if (tokens[0].contains("-")) tokens[0] else "${tokens[0]}-${tokens[1]}"
+                    val drawer = if (tokens.size > 2) tokens[2] else tokens.last()
+                    Pair(code, drawer.uppercase())
+                }
+                else -> Pair("2-1", "1A")
+            }
+        }
     }
 
     override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
@@ -105,12 +187,12 @@ class AppWebViewClient(private val context: Context) : WebViewClient() {
         ) {
             val rawExtracted = PhoneActionHelper.extractPhoneNumberFromUrl(decodedUrl)
             val pureNumber = if (rawExtracted.isNotBlank()) {
-                rawExtracted
+                PhoneActionHelper.cleanPhoneNumber(rawExtracted)
             } else {
-                decodedUrl.substringAfter("tel:", "").filter { it.isDigit() }
+                PhoneActionHelper.cleanPhoneNumber(decodedUrl.substringAfter("tel:", ""))
             }
 
-            if (pureNumber.isNotEmpty()) {
+            if (PhoneActionHelper.isValidPhoneNumber(pureNumber)) {
                 view?.stopLoading() // 立即強制終止 WebView 載入 Google 網頁
 
                 // 喚醒原生撥號盤

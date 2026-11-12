@@ -1,0 +1,16 @@
+{
+  "sandbox_version": "1.0.0",
+  "enabled": true,
+  "parameters": {
+    "latitude": 25.0330,
+    "longitude": 121.5654,
+    "distance_range_km": 5.0,
+    "countdown_seconds": 60,
+    "tts_broadcast_text": "【百川現場沙盒】現場動態參數已成功載入：GPS 定位點啟用，搜尋半徑 5.0 公里，倒數 60 秒，TTS 語音播報就緒。"
+  },
+  "safety_policy": {
+    "auto_fallback": true,
+    "on_missing_or_empty": "skip_silently_without_error",
+    "one_click_restore": "delete_mobile_sandbox_folder_to_revert_100_percent"
+  }
+}

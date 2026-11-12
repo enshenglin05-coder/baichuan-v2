@@ -39,13 +39,31 @@ object BaichuanRepository {
     }
 
     /**
-     * 注入測試卡片至記憶體（不上報遠端 API）
+     * 注入與同步雲端/測試卡片至記憶體（對齊遠端即時狀態，自動抹除已下架之遠端卡片）
      */
-    fun injectTestCards(cards: List<RequirementCard>) {
+    fun syncCloudCards(cards: List<RequirementCard>) {
+        val fetchedCardIds = cards.map { it.card_id }.toSet()
+
+        // 1. 注入/更新最新的雲端卡片
         cards.forEach { card ->
             val categoryMap = partitionedCards.getOrPut(card.category_code) { ConcurrentHashMap() }
             categoryMap[card.card_id] = card
         }
+
+        // 2. 針對「非預設卡片」且「非本機發布卡片」，若遠端已下架抹除 (不在 fetchedCardIds 中)，則從記憶體抽屜中同步抹除
+        if (cards.isNotEmpty()) {
+            val localIds = LocalCardDatabase.getAllLocalCards().map { it.card_id }.toSet()
+            partitionedCards.values.forEach { categoryMap ->
+                val keysToRemove = categoryMap.values.filter { card ->
+                    !card.isPresetCard() && !localIds.contains(card.card_id) && !fetchedCardIds.contains(card.card_id)
+                }.map { it.card_id }
+                keysToRemove.forEach { categoryMap.remove(it) }
+            }
+        }
+    }
+
+    fun injectTestCards(cards: List<RequirementCard>) {
+        syncCloudCards(cards)
     }
 
     /**
@@ -223,23 +241,33 @@ object BaichuanRepository {
             } else {
                 false // 無座標時不顯示
             }
-        }.map { it.copy(isSelfOwner = it.publisher_device_id == currentDeviceId || it.publisher_device_id.isBlank() || LocalCardDatabase.getCard(it.card_id) != null) }
+        }.map { card ->
+            val myDeviceId = currentDeviceId.ifBlank { UserIdentityManager.getMyDeviceId() }
+            val isMyCard = (myDeviceId.isNotBlank() && card.publisher_device_id == myDeviceId) ||
+                           (card.publisher_device_id.isNotBlank() && card.publisher_device_id == currentDeviceId) ||
+                           UserIdentityManager.isMyCard(card.publisher_device_id) ||
+                           (LocalCardDatabase.getCard(card.card_id) != null && !card.isPresetCard())
+            card.copy(isSelfOwner = isMyCard)
+        }
 
-        // 4. 載入優先權順序 (Priority Sequence) 與排序合併邏輯：
-        // 第一優先群組（使用者發布卡片）：將使用者手動發布的卡片置於最前方，最新發布的排在最前面
-        val userCards = validCards.filter { !it.isPresetCard() }.sortedByDescending { it.created_at }
+        // 4. 載入三層優先權順序 (Priority Sequence) 與排序合併邏輯：
+        // 第一優先（最前面）：使用者【自己的卡片】
+        val myCards = validCards.filter { !it.isPresetCard() && it.isSelfOwner }.sortedByDescending { it.created_at }
         
-        // 第二優先群組（預設卡片）：將系統的預設卡片固定排列在整個列表的最後面
+        // 第二優先（中間）：其他發布者的卡片
+        val otherUserCards = validCards.filter { !it.isPresetCard() && !it.isSelfOwner }.sortedByDescending { it.created_at }
+
+        // 第三優先（最後面）：系統預設/虛擬宣傳卡片
         val defaultCards = validCards.filter { card ->
             card.isPresetCard()
         }.sortedByDescending { it.created_at }
 
-        // 將兩者合併為一個完整的顯示清單：[使用者發布卡片列表] + [預設卡片列表]
-        val finalList = userCards + defaultCards
+        // 將三者依序合併為一個完整的顯示清單：[自己發布卡片] + [其他發布者卡片] + [系統預設卡片]
+        val finalList = myCards + otherUserCards + defaultCards
 
-        safeLogD("CardSorting", "使用者發布卡片數: ${userCards.size}, 預設卡片數: ${defaultCards.size}, 總渲染數: ${finalList.size}")
+        safeLogD("CardSorting", "第一優先(自己卡片): ${myCards.size}, 第二優先(其他發布者): ${otherUserCards.size}, 第三優先(系統預設): ${defaultCards.size}, 總渲染數: ${finalList.size}")
         finalList.forEachIndexed { index, card ->
-            safeLogD("CardSorting", "排序後卡片[$index] ID: ${card.card_id}, 分類: ${card.category_tag}, 建立時間: ${card.created_at}")
+            safeLogD("CardSorting", "排序後卡片[$index] ID: ${card.card_id}, 分類: ${card.category_tag}, 建立時間: ${card.created_at}, isSelfOwner: ${card.isSelfOwner}")
         }
 
         return finalList

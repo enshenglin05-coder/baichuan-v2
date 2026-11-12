@@ -450,13 +450,22 @@ class UI3Activity : BaseActivity() {
                         val jsonString = gson.toJson(draftModels)
                         
                         val outline96 = Grid88Formatter.generate96GridOutline(this@UI3Activity)
-                        val combinedPackage = "$outline96\n\n=== [全數卡片數據與一鍵打包草稿 (共 ${draftModels.size} 筆卡片，包含 #01 到 #${draftModels.size})] ===\n$jsonString"
+                        
+                        val firstSectionCode = draftModels.firstOrNull()?.category_code.orEmpty().ifBlank { card.category_code.ifBlank { "2-1" } }
+                        val firstDrawerType = draftModels.firstOrNull()?.drawer_type.orEmpty().ifBlank { card.drawer_type.ifBlank { "1A" } }
+                        val typeDesc = if (firstDrawerType == "1B") "我要供給 (1B)" else "我要需求 (1A)"
+                        val categoryTitle = CategoryRepository.getCategoryTitle(firstSectionCode, this@UI3Activity)
+                        val sectionAnchor = firstSectionCode.replace("-", "_")
+                        
+                        val headerInfo = "=== [$firstSectionCode] $categoryTitle — $typeDesc 卡片清單 ==="
+                        val cleanPrompt = "> 當使用者點擊 👉 【是】 時，系統會針對 [$firstSectionCode] $categoryTitle 專屬模組載入對應的 JSON 卡片資訊與詳細選單（如：需求發布卡片、訂餐聯絡欄位、付款方式與送餐地點等欄位）。\n> 您需要針對特定的標頭（如 [$firstSectionCode] 或其他項）輸出對應的詳細 JSON 卡片資料結構嗎？\n> 👉 [【是】](#expand_section_${sectionAnchor}_$firstDrawerType)                                         是+√"
+                        val combinedPackage = "${DraftCardModel.MATCHMAKING_SYSTEM_INSTRUCTION}\n\n$outline96\n\n$headerInfo\n\n$jsonString\n\n$cleanPrompt"
                         
                         ContactUtils.copyToClipboard(this@UI3Activity, combinedPackage)
-                        android.util.Log.d("BaichuanPack", "📋 [一鍵打包 無上限帶入 ${draftModels.size} 筆卡片(1..${draftModels.size})+96格大綱+JSON] 已寫入剪貼簿:\n$combinedPackage")
+                        android.util.Log.d("BaichuanPack", "📋 [一鍵打包 僅含 [$firstSectionCode] 大綱+標頭+匯入詢問，超精簡省Context] 已寫入剪貼簿:\n$combinedPackage")
                         
                         runOnUiThread {
-                            Toast.makeText(this@UI3Activity, "已複製全數 ${draftModels.size} 筆卡片，準備跳轉 AI 貼上", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this@UI3Activity, "已複製 [$firstSectionCode] 區段大綱與標頭，準備跳轉 AI 貼上", Toast.LENGTH_SHORT).show()
                             AiModalityDialogManager.showAiModalitiesMenu(this@UI3Activity)
                         }
                     }
@@ -623,11 +632,12 @@ class UI3Activity : BaseActivity() {
     private fun makePhoneCall(context: Context, rawPhone: String?) {
         try {
             val phone = rawPhone?.trim() ?: ""
-            if (phone.isEmpty() || phone == "null") {
+            if (phone.isEmpty() || phone == "null" || !PhoneActionHelper.isValidPhoneNumber(phone)) {
                 Toast.makeText(context.applicationContext, "此卡片未提供有效電話號碼", Toast.LENGTH_SHORT).show()
                 return
             }
-            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone")).apply {
+            val cleanedPhone = PhoneActionHelper.cleanPhoneNumber(phone)
+            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$cleanedPhone")).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.applicationContext.startActivity(intent)

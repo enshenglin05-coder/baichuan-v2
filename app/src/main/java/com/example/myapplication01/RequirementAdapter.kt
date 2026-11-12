@@ -485,13 +485,15 @@ class RequirementAdapter(
     }
 
     fun updateData(newCards: List<RequirementCard>, newLat: Double?, newLng: Double?) {
-        val userCards = newCards.filter { !it.isPresetCard() }.sortedByDescending { it.created_at }
+        // 三層優先權順序：第一優先(自己卡片) -> 第二優先(其他發布者) -> 第三優先(系統預設)
+        val myCards = newCards.filter { !it.isPresetCard() && it.isSelfOwner }.sortedByDescending { it.created_at }
+        val otherUserCards = newCards.filter { !it.isPresetCard() && !it.isSelfOwner }.sortedByDescending { it.created_at }
         val defaultCards = newCards.filter { it.isPresetCard() }.sortedByDescending { it.created_at }
-        val finalList = userCards + defaultCards
+        val finalList = myCards + otherUserCards + defaultCards
 
-        safeLogD("CardSorting", "使用者發布卡片數: ${userCards.size}, 預設卡片數: ${defaultCards.size}, 總渲染數: ${finalList.size}")
+        safeLogD("CardSorting", "第一優先(自己卡片): ${myCards.size}, 第二優先(其他發布者): ${otherUserCards.size}, 第三優先(系統預設): ${defaultCards.size}, 總渲染數: ${finalList.size}")
         finalList.forEachIndexed { index, card ->
-            safeLogD("CardSorting", "適配器排序後卡片[$index] ID: ${card.card_id}, 分類: ${card.category_tag}, 建立時間: ${card.created_at}")
+            safeLogD("CardSorting", "適配器排序後卡片[$index] ID: ${card.card_id}, 分類: ${card.category_tag}, 建立時間: ${card.created_at}, isSelfOwner: ${card.isSelfOwner}")
         }
 
         this.cards = finalList

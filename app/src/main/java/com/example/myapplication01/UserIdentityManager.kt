@@ -102,7 +102,10 @@ object UserIdentityManager {
     /**
      * 判斷卡片是否為「自己發布」
      */
-    fun isMyCard(context: Context, publisherDeviceId: String): Boolean {
+    fun isMyCard(context: Context? = appContext, publisherDeviceId: String): Boolean {
         return getMyDeviceId(context) == publisherDeviceId
+    }
+    fun isMyCard(publisherDeviceId: String): Boolean {
+        return getMyDeviceId(appContext) == publisherDeviceId
     }
 }

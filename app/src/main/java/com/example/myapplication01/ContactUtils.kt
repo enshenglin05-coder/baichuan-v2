@@ -60,7 +60,7 @@ object ContactUtils {
      * 格式化電話號碼 (去除非數字以外的字元，移除網路抬頭)
      */
     fun cleanPhoneNumber(phoneNumber: String): String {
-        return cleanPhoneHeader(phoneNumber)
+        return PhoneActionHelper.cleanPhoneNumber(phoneNumber)
     }
 
     /**
@@ -69,11 +69,12 @@ object ContactUtils {
     fun makePhoneCall(context: Context, rawPhone: String?) {
         try {
             val phone = rawPhone?.trim() ?: ""
-            if (phone.isEmpty() || phone == "null") {
+            if (phone.isEmpty() || phone == "null" || !PhoneActionHelper.isValidPhoneNumber(phone)) {
                 Toast.makeText(context.applicationContext, "此卡片未提供有效電話號碼", Toast.LENGTH_SHORT).show()
                 return
             }
-            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone")).apply {
+            val cleanedPhone = PhoneActionHelper.cleanPhoneNumber(phone)
+            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$cleanedPhone")).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.applicationContext.startActivity(intent)

@@ -961,4 +961,116 @@ class ExampleUnitTest {
         assertTrue(sequenceCompleted)
         assertFalse(TtsPacketChainManager.isPlaying())
     }
+
+    @Test
+    fun testThreeTierCardSortingAndUnpublishMechanism() {
+        val myDeviceId = "MY_TEST_DEVICE_123"
+        val now = System.currentTimeMillis()
+
+        // 1. 第一優先：自己發布的卡片 (My Card)
+        val myCard = RequirementCard(
+            card_id = "MY_CARD_001",
+            publisher_device_id = myDeviceId,
+            category_code = "1-1",
+            drawer_type = "1A",
+            gps_lat = 25.0026,
+            gps_lng = 121.4977,
+            created_at = now - 1000,
+            is_test_only = false
+        )
+
+        // 2. 第二優先：其他發布者的卡片 (Other User Card)
+        val otherCard = RequirementCard(
+            card_id = "OTHER_CARD_002",
+            publisher_device_id = "OTHER_DEVICE_456",
+            category_code = "1-1",
+            drawer_type = "1A",
+            gps_lat = 25.0026,
+            gps_lng = 121.4977,
+            created_at = now, // 雖然建立時間比 myCard 新，但優先權為第二層
+            is_test_only = false
+        )
+
+        // 3. 第三優先：系統預設/宣傳卡片 (Preset Card)
+        val presetCard = RequirementCard(
+            card_id = "TEST_PRESET_003",
+            publisher_device_id = "SYSTEM_ADMIN",
+            category_code = "1-1",
+            drawer_type = "1A",
+            gps_lat = 25.0026,
+            gps_lng = 121.4977,
+            created_at = now + 1000,
+            is_test_only = true
+        )
+
+        BaichuanRepository.clearAll()
+        BaichuanRepository.injectTestCards(listOf(presetCard, otherCard, myCard))
+
+        val sortedList = BaichuanRepository.getFilteredCards(
+            25.0026, 121.4977, listOf("1-1"), "1A", myDeviceId, 50.0
+        )
+
+        assertEquals(3, sortedList.size)
+        // 驗證三層優先權排序結果：[自己卡片] -> [其他發布者] -> [系統預設]
+        assertEquals("MY_CARD_001", sortedList[0].card_id)
+        assertTrue(sortedList[0].isSelfOwner)
+
+        assertEquals("OTHER_CARD_002", sortedList[1].card_id)
+        assertFalse(sortedList[1].isSelfOwner)
+
+        assertEquals("TEST_PRESET_003", sortedList[2].card_id)
+
+        // 測試卡片下架與抹除機制
+        BaichuanRepository.removeCard("MY_CARD_001")
+        val afterUnpublishList = BaichuanRepository.getFilteredCards(
+            25.0026, 121.4977, listOf("1-1"), "1A", myDeviceId, 50.0
+        )
+
+        assertEquals(2, afterUnpublishList.size)
+        assertFalse(afterUnpublishList.any { it.card_id == "MY_CARD_001" })
+    }
+
+    @Test
+    fun testSmartSectionImportPromptAndUrlParsing() {
+        // 1. 驗證 DraftCardModel 能動態辨識區段 (例如 2-1 或 1-1) 並渲染極簡對話詢問
+        val card21 = DraftCardModel(
+            t = "測試卡片2-1",
+            category_code = "2-1",
+            drawer_type = "1A"
+        )
+        val markdown21 = card21.toMarkdown()
+        assertTrue(markdown21.contains("區段: 2-1"))
+        assertTrue(markdown21.contains("當使用者點擊 👉 【是】 時"))
+        assertTrue(markdown21.contains("您需要針對特定的標頭"))
+        assertTrue(markdown21.contains("[【是】](#expand_section_2_1_1A)"))
+        assertTrue(markdown21.contains("是+√"))
+        assertFalse(markdown21.contains("因對話方塊上下限制"))
+
+        val card11 = DraftCardModel(
+            t = "測試卡片1-1",
+            category_code = "1-1",
+            drawer_type = "1B"
+        )
+        val markdown11 = card11.toMarkdown()
+        assertTrue(markdown11.contains("區段: 1-1"))
+        assertTrue(markdown11.contains("當使用者點擊 👉 【是】 時"))
+        assertTrue(markdown11.contains("[【是】](#expand_section_1_1_1B)"))
+
+        // 2. 驗證 VerticalCardRenderer HTML 包裹渲染
+        val htmlContent = VerticalCardRenderer.packageAndRenderJsonWithOutline(null, listOf(card21))
+        assertTrue(htmlContent.contains("當使用者點擊 👉 【是】 時"))
+        assertTrue(htmlContent.contains("href=\"#expand_section_2_1_1A\""))
+        assertTrue(htmlContent.contains("【是】"))
+        assertTrue(htmlContent.contains("是+√"))
+        assertFalse(htmlContent.contains("因對話方塊上下限制"))
+
+        // 3. 驗證 AppWebViewClient 之 expand_section URL 解析器
+        val (sec1, drawer1) = AppWebViewClient.parseSectionCodeAndDrawerType("#expand_section_2_1_1A")
+        assertEquals("2-1", sec1)
+        assertEquals("1A", drawer1)
+
+        val (sec2, drawer2) = AppWebViewClient.parseSectionCodeAndDrawerType("https://example.com/#expand_section_4_2_1B")
+        assertEquals("4-2", sec2)
+        assertEquals("1B", drawer2)
+    }
 }

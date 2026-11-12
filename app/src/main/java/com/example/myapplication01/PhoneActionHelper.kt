@@ -114,7 +114,7 @@ object PhoneActionHelper {
     }
 
     /**
-     * 清理並提取純電話號碼 (處理 intent://, tel://, tel: 及各種斜線與非數字雜訊)
+     * 清理並提取純電話號碼 (處理 intent://, tel://, tel: 及各種斜線與非數字雜訊，並徹底排除多餘尾數與 ID/索引標籤如 -39, -4594 等)
      */
     fun cleanPhoneNumber(phoneStr: String): String {
         var str = phoneStr.trim()
@@ -138,12 +138,43 @@ object PhoneActionHelper {
             .removePrefix("tel:").removePrefix("TEL:")
             .removePrefix("//")
 
+        // 💥 排除多餘尾數或 ID/索引標籤（例如 -39, -4594 等結尾附加編號）
+        val hyphenIdx = str.indexOf('-')
+        if (hyphenIdx != -1) {
+            val prefix = str.substring(0, hyphenIdx).trim()
+            if (prefix.startsWith("0") || prefix.startsWith("+") || (prefix.length in 3..4 && prefix.all { it.isDigit() })) {
+                str = prefix
+            } else {
+                str = str.replace(Regex("-\\d+$"), "")
+            }
+        }
+
         // 留下純數字與國際號碼字元 '+'
         return str.replace(Regex("[^0-9+]"), "")
     }
 
     /**
-     * 從各式資料形態 (String / Map / JsonObject / JsonElement) 中提取純電話號碼
+     * 嚴格驗證電話號碼是否為合法格式（防止 ID 或無關數字被當成電話撥打）
+     */
+    fun isValidPhoneNumber(phone: String?): Boolean {
+        if (phone.isNullOrBlank()) return false
+        val cleaned = cleanPhoneNumber(phone)
+        if (cleaned.length < 3 || cleaned.length > 15) return false
+        // 台灣手機：09開頭，10碼
+        if (cleaned.startsWith("09") && cleaned.length == 10) return true
+        // 台灣市話：0開頭，9-10碼
+        if (cleaned.startsWith("0") && cleaned.length in 9..10) return true
+        // 國際號碼：+ 開頭
+        if (cleaned.startsWith("+")) return true
+        // 系統/短號 (如 181-189 等 3-4 碼)
+        if (cleaned.length in 3..4 && cleaned.all { it.isDigit() }) return true
+        // 一般號碼
+        if (cleaned.length in 7..12) return true
+        return false
+    }
+
+    /**
+     * 從各式資料形態 (String / Map / JsonObject / JsonElement) 中提取純電話號碼並進行驗證
      */
     fun extractPhoneNumber(phoneAny: Any?): String? {
         if (phoneAny == null) return null
@@ -172,7 +203,7 @@ object PhoneActionHelper {
         } ?: return null
 
         val cleaned = cleanPhoneNumber(rawNumber)
-        return cleaned.ifEmpty { null }
+        return if (isValidPhoneNumber(cleaned)) cleaned else null
     }
 
     /**
@@ -304,7 +335,10 @@ object PhoneActionHelper {
             extractPhoneNumber(phoneAny)
         }
 
-        if (cleanNumber.isNullOrEmpty()) return
+        if (cleanNumber.isNullOrEmpty() || !isValidPhoneNumber(cleanNumber)) {
+            Toast.makeText(context.applicationContext, "此卡片未提供有效電話號碼", Toast.LENGTH_SHORT).show()
+            return
+        }
 
         try {
             val dialUri = Uri.parse("tel:$cleanNumber")

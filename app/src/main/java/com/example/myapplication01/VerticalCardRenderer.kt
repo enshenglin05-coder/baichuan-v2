@@ -33,53 +33,81 @@ object VerticalCardRenderer {
         val contactDisplay = card.contact.display.ifBlank { "💬 聯絡對接" }
         val phoneDisplay = if (card.contact.phone.isNotBlank()) "📞 撥打電話 (${card.contact.phone})" else "📞 撥打電話"
         val introDisplay = "🔗 個人 / 產品介紹"
-        val introText = if (introLink != "#" && introLink.isNotBlank()) introLink else "尚未提供介紹連結"
+        
+        // 藍色可跳轉連結字體 (支援 FB, IG, Threads, YouTube 等外部連結)
+        val introTextRaw = if (introLink != "#" && introLink.isNotBlank()) introLink else "尚未提供介紹連結"
+        val introHtml = if (introLink != "#" && introLink.isNotBlank()) {
+            "<a href=\"$introLink\" target=\"_blank\" style=\"color: #1A73E8; text-decoration: underline;\">$introTextRaw</a>"
+        } else {
+            "<span style=\"color: #888888;\">$introTextRaw</span>"
+        }
+
+        val phoneHtml = if (card.contact.phone.isNotBlank()) {
+            "<a href=\"tel:${card.contact.phone}\" style=\"color: #1A73E8; text-decoration: underline;\">${card.contact.phone}</a>"
+        } else {
+            "未提供"
+        }
+
+        val lineHtml = if (lineLink != "#") {
+            "<a href=\"$lineLink\" target=\"_blank\" style=\"color: #1A73E8; text-decoration: underline;\">$contactDisplay</a>"
+        } else {
+            contactDisplay
+        }
+
+        val typeDesc = if (card.drawer_type == "1B") "我要供給" else "我要需求"
 
         return """
             <div class="vertical-card-item" data-index="${card.idx}">
               <!-- 卡片識別標頭 -->
               <div class="card-header">
                 <span class="card-idx">${card.idx}</span>
-                <h3 class="card-title">${card.t} (${card.dist})</h3>
+                <h3 class="card-title">${card.t} (${card.dist}) - 區段: ${card.category_code} [$typeDesc]</h3>
                 <span class="card-time">${card.time}</span>
               </div>
 
-              <!-- 區塊 1：📌 服務 / 需求內容 -->
+              <!-- 區塊 1：📍 位置與導航 -->
               <div class="card-section">
-                <div class="section-label">📌 服務 / 需求內容</div>
-                <p class="section-content">${card.desc}</p>
+                <div class="section-label">📍 區塊 1：位置與導航</div>
+                <p class="section-content">
+                  發布時間: ${card.time} | 座標: (${card.lat}, ${card.lng}) | 距離: ${card.dist}<br>
+                  <a href="$mapLink" target="_blank" style="color: #1A73E8; text-decoration: underline;">[Google Map 導航]</a>
+                </p>
               </div>
 
-              <!-- 區塊 2：🔗 個人 / 產品介紹 -->
+              <!-- 區塊 2：📌 標題與說明內容 -->
               <div class="card-section">
-                <div class="section-label">🔗 個人 / 產品介紹</div>
-                <p class="section-content">$introText</p>
+                <div class="section-label">📌 區塊 2：標題與說明內容</div>
+                <p class="section-content">
+                  <b>${card.t}</b><br>
+                  ${card.desc} (展開)
+                </p>
               </div>
 
-              <!-- 區塊 3：📞 電話與對接資訊 -->
+              <!-- 區塊 3：🔗 聯絡與外部跳轉 -->
               <div class="card-section">
-                <div class="section-label">📞 電話與通訊對接</div>
-                <p class="section-content">${if (card.contact.phone.isNotBlank()) "電話: " + card.contact.phone else "電話: 未提供"} | $contactDisplay</p>
+                <div class="section-label">🔗 區塊 3：聯絡與外部跳轉</div>
+                <p class="section-content">
+                  電話: $phoneHtml<br>
+                  聯絡對接: $lineHtml<br>
+                  個人/產品介紹: $introHtml
+                </p>
               </div>
 
-              <!-- 區塊 4：垂直縱向按鈕清單 (Vertical Stack Action Buttons) -->
+              <!-- 區塊 4：⚙️ 本地動作與狀態管理 -->
+              <div class="card-section">
+                <div class="section-label">⚙️ 區塊 4：本地動作與狀態管理</div>
+                <p class="section-content">
+                  <a href="#delete" style="color: #1A73E8; text-decoration: underline;">[✕ 下架 / 全網刪除]</a> | 
+                  <a href="#list" style="color: #1A73E8; text-decoration: underline;">[↑ 向上滑動查看需求列表]</a>
+                </p>
+              </div>
+
+              <!-- 垂直縱向 4 功能按鈕清單 (Vertical Stack Action Buttons) -->
               <div class="card-actions-vertical">
-                <!-- 1. 💬 社交通訊對接按鈕 (LINE/WeChat/Telegram) -->
-                <a href="$lineLink" class="btn-action line-action" target="_blank">
-                  $contactDisplay
-                </a>
-                <!-- 2. 📞 電話直接撥打按鈕 -->
-                <a href="$phoneLink" class="btn-action phone-action">
-                  $phoneDisplay
-                </a>
-                <!-- 3. 📍 地圖位置導航按鈕 -->
-                <a href="$mapLink" class="btn-action map-action" target="_blank">
-                  📍 地圖導航
-                </a>
-                <!-- 4. 🔗 個人 / 產品介紹按鈕 -->
-                <a href="$introLink" class="btn-action intro-action" target="_blank">
-                  $introDisplay
-                </a>
+                <a href="$lineLink" class="btn-action line-action" target="_blank">$lineHtml</a>
+                <a href="$phoneLink" class="btn-action phone-action">$phoneDisplay</a>
+                <a href="$mapLink" class="btn-action map-action" target="_blank">📍 地圖導航</a>
+                <a href="$introLink" class="btn-action intro-action" target="_blank">$introDisplay</a>
               </div>
             </div>
         """.trimIndent()
@@ -151,7 +179,15 @@ object VerticalCardRenderer {
     /**
      * 包裹完整 HTML5 文件結構與 CSS 樣式供 WebView 直接加載 (垂直縱向 Vertical Stack 排版)
      */
-    fun wrapHtmlDocument(cardsHtml: String, outlineHtml: String = "", cardCount: Int = 0): String {
+    fun wrapHtmlDocument(
+        cardsHtml: String,
+        outlineHtml: String = "",
+        cardCount: Int = 0,
+        sectionCode: String = "2-1",
+        drawerType: String = "1A"
+    ): String {
+        val sectionAnchor = sectionCode.replace("-", "_")
+        val categoryTitle = CategoryRepository.getCategoryTitle(sectionCode, null)
         return """
             <!DOCTYPE html>
             <html lang="zh-TW">
@@ -168,6 +204,10 @@ object VerticalCardRenderer {
                   padding: 12px;
                   margin: 0;
                   line-height: 1.5;
+                }
+                a, a:link, a:visited, a:hover, a:active {
+                  color: #1A73E8;
+                  text-decoration: underline;
                 }
                 .pack-header-title {
                   color: #00FFC2;
@@ -280,6 +320,10 @@ object VerticalCardRenderer {
                   margin: 0;
                   word-break: break-all;
                 }
+                .section-content a {
+                  color: #1A73E8;
+                  text-decoration: underline;
+                }
                 .card-actions-vertical {
                   display: flex;
                   flex-direction: column;
@@ -301,6 +345,16 @@ object VerticalCardRenderer {
                 .phone-action { background: #FF9800; color: #FFFFFF; }
                 .map-action { background: #1A73E8; color: #FFFFFF; }
                 .intro-action { background: #9C27B0; color: #FFFFFF; }
+                .smart-prompt-footer {
+                  background: #181828;
+                  border: 1.5px solid #00E5FF;
+                  border-radius: 12px;
+                  padding: 16px;
+                  margin-top: 20px;
+                  margin-bottom: 12px;
+                  text-align: center;
+                  box-shadow: 0 4px 12px rgba(0, 229, 255, 0.2);
+                }
               </style>
             </head>
             <body>
@@ -309,6 +363,18 @@ object VerticalCardRenderer {
               <div class="divider-title">=== [目標卡片與一鍵打包草稿 (共 $cardCount 筆)] ===</div>
               <div class="vertical-card-list">
                 $cardsHtml
+              </div>
+              <div class="smart-prompt-footer">
+                <div style="color: #FFFFFF; font-size: 14px; font-weight: bold; margin-bottom: 10px; line-height: 1.6; text-align: left;">
+                  當使用者點擊 👉 【是】 時，系統會針對 [$sectionCode] $categoryTitle 專屬模組載入對應的 JSON 卡片資訊與詳細選單（如：需求發布卡片、聯絡欄位、付款方式與送餐地點等欄位）。<br>
+                  您需要針對特定的標頭（如 [$sectionCode] 或其他項）輸出對應的詳細 JSON 卡片資料結構嗎？
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
+                  <a href="#expand_section_${sectionAnchor}_$drawerType" class="btn-action" style="background: #00E5FF; color: #000000; text-align: center; padding: 10px 16px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 15px; display: inline-block;">
+                    【是】
+                  </a>
+                  <span style="color: #00FFC2; font-weight: bold; font-size: 16px;">是+√</span>
+                </div>
               </div>
             </body>
             </html>
@@ -321,7 +387,9 @@ object VerticalCardRenderer {
     fun packageAndRenderJsonWithOutline(context: android.content.Context?, cards: List<DraftCardModel>): String {
         val outlineHtml = render96GridOutlineHtml(context)
         val cardsHtml = generateDraftCardList(cards)
-        return wrapHtmlDocument(cardsHtml, outlineHtml, cards.size)
+        val firstSectionCode = cards.firstOrNull()?.category_code.orEmpty().ifBlank { "2-1" }
+        val firstDrawerType = cards.firstOrNull()?.drawer_type.orEmpty().ifBlank { "1A" }
+        return wrapHtmlDocument(cardsHtml, outlineHtml, cards.size, firstSectionCode, firstDrawerType)
     }
 
     /**
