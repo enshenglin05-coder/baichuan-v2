@@ -1,16 +1,40 @@
-{
-  "sandbox_version": "1.0.0",
-  "enabled": true,
-  "parameters": {
-    "latitude": 25.0330,
-    "longitude": 121.5654,
-    "distance_range_km": 5.0,
-    "countdown_seconds": 60,
-    "tts_broadcast_text": "【百川現場沙盒測試】目前位置周邊運作正常，動態參數載入成功。"
-  },
-  "safety_policy": {
-    "auto_fallback": true,
-    "on_missing_or_empty": "skip_silently",
-    "one_click_restore": "delete_mobile_sandbox_folder"
-  }
+package com.baichuan.mobile_sandbox
+
+import android.util.Log
+import org.json.JSONObject
+import java.net.URL
+
+object MobileSandboxLoader {
+    private const val TAG = "SANDBOX_SOURCE"
+    private const val GITHUB_CONFIG_URL = "https://raw.githubusercontent.com/enshenglin05-coder/baichuan-v2/main/mobile_sandbox/sandbox_config.json"
+
+    data class SandboxConfig(
+        val latitude: Double,
+        val longitude: Double,
+        val distanceRangeKm: Double,
+        val countdownSeconds: Int,
+        val ttsBroadcastText: String
+    )
+
+    fun fetchAndParseConfig(): SandboxConfig? {
+        return try {
+            val jsonString = URL(GITHUB_CONFIG_URL).readText()
+            val json = JSONObject(jsonString)
+            val params = json.getJSONObject("parameters")
+
+            val config = SandboxConfig(
+                latitude = params.getDouble("latitude"),
+                longitude = params.getDouble("longitude"),
+                distanceRangeKm = params.getDouble("distance_range_km"),
+                countdownSeconds = params.getInt("countdown_seconds"),
+                ttsBroadcastText = params.getString("tts_broadcast_text")
+            )
+            
+            Log.d(TAG, "🔥 [沙盒熱更新] 成功載入遠端參數，播報文字: ${config.ttsBroadcastText}")
+            config
+        } catch (e: Exception) {
+            Log.w(TAG, "⚠️ [本地預設] 無法讀取遠端沙盒或格式錯誤，走本地備援邏輯: ${e.message}")
+            null
+        }
+    }
 }
