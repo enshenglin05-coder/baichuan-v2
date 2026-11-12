@@ -219,6 +219,8 @@ class TtsManager(
      */
     fun speak(text: String, queueMode: Int = TextToSpeech.QUEUE_FLUSH, utteranceId: String = "TTS_ID") {
         currentSpeakingText = text
+        val sourceType = utteranceId
+        Log.d("TTS_TRIGGER_DEBUG", "🎯 [TTS 發聲] 來源通道: ${sourceType}, 播報內容: ${text}")
 
         if (isReady && tts != null) {
             try {
