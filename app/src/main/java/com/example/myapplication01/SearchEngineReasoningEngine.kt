@@ -75,7 +75,7 @@ object SearchEngineReasoningEngine {
             return emptyList()
         }
 
-        safeLogI(TAG, "🔍 啟動搜尋引擎模擬式情境推理邏輯... 重構載入 1. 食 至 10. 專業服務 各 8 個子項目各 10 筆供給與 10 筆需求卡片")
+        safeLogI(TAG, "🔍 啟動搜尋引擎情境推理與自動發布邏輯... 重構載入 1. 食 至 10. 專業服務 各 8 個子項目各 10 筆供給與 10 筆需求卡片")
 
         val generatedCards = mutableListOf<RequirementCard>()
         var globalCardIndex = 1

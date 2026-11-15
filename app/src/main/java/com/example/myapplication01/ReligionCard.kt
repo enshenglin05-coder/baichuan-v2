@@ -20,5 +20,16 @@ data class ReligionCard(
     val id: String,
     val nameResId: Int,
     val descResId: Int,
-    val category: ReligionCategory = ReligionCategory.GENERAL
-)
+    val category: ReligionCategory = ReligionCategory.GENERAL,
+    val isReported: Boolean = false,
+    val reportCount: Int = 0,
+    val isQuarantined: Boolean = false
+) {
+    /**
+     * 檢查卡片結構與資料是否合法：
+     * 若 id 為空白，或名稱/描述資源 ID 為無效 (0)，視為結構或資料異常卡片。
+     */
+    fun isValid(): Boolean {
+        return id.isNotBlank() && nameResId != 0 && descResId != 0
+    }
+}

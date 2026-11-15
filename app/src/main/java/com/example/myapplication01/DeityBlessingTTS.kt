@@ -166,11 +166,11 @@ object DeityBlessingTTS {
      */
     fun enqueueBackendPacketTexts(
         context: Context,
-        texts: List<String>,
+        cards: List<RequirementCard>,
         onSequenceComplete: (() -> Unit)? = null
     ) {
         init(context)
-        ttsManager?.enqueueBackendPacketTexts(texts, onSequenceComplete)
+        ttsManager?.enqueueBackendPacketTexts(cards, onSequenceComplete)
     }
 
     fun shutdown() {

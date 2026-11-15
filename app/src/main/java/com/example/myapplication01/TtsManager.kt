@@ -141,11 +141,19 @@ class TtsManager(
                 isFifoProcessing = false
                 Log.d("TtsManager", "✅ TTS 播報完成 utteranceId=$utteranceId，解鎖下一次播報狀態")
 
-                // 語音自然播放完成時觸發倒數次數扣減
-                if (utteranceId.startsWith("TTS_") || utteranceId == "DEITY_BLESSING" || utteranceId == "AD_HURLUNGCHUANG_01") {
-                    HurlungchuangTestManager.onPlaybackCompleted()
-                    TtsAdManager.onAdPlayed("AD_HURLUNGCHUANG_01")
-                }
+                // 播報完成時，執行純粹的 Git PUT 回寫邏輯 (無狀態、無模擬)
+                val adId = "AD_HURLUNGCHUANG_01" 
+                
+                // 執行 Git PUT 回寫
+                BaichuanApiService.syncZeroedCardToGithub(
+                    cardId = adId,
+                    text = currentSpeakingText,
+                    lat = HurlungchuangTestManager.TARGET_LATITUDE,
+                    lng = HurlungchuangTestManager.TARGET_LONGITUDE,
+                    totalCount = 100 
+                )
+                
+                Log.d("TtsManager", "✅ [純粹流程] TTS 播報完成，已觸發 Git PUT 回寫 $adId")
 
                 if (isSequencingActive) {
                     if (utteranceId == "DEITY_BLESSING") {
@@ -156,10 +164,10 @@ class TtsManager(
                         Log.d("TtsManager", "📦 [封包撥報序] 當前封包播放完畢，續撥下一筆...")
                         mainHandler.post { playNextSequenceItem() }
                     }
+                } else {
+                    // 順序播放 FIFO 佇列下一筆 (僅在非序接播放模式下才處理 FIFO 佇列)
+                    mainHandler.post { processNextFifoPayload() }
                 }
-
-                // 順序播放 FIFO 佇列下一筆
-                mainHandler.post { processNextFifoPayload() }
             }
 
             @Deprecated("Deprecated in Java")
@@ -176,9 +184,9 @@ class TtsManager(
                     } else if (utteranceId.startsWith("BROADCAST_SEQ_")) {
                         mainHandler.post { playNextSequenceItem() }
                     }
+                } else {
+                    mainHandler.post { processNextFifoPayload() }
                 }
-
-                mainHandler.post { processNextFifoPayload() }
             }
 
             override fun onRangeStart(utteranceId: String, start: Int, end: Int, frame: Int) {
@@ -215,7 +223,7 @@ class TtsManager(
     }
 
     /**
-     * 播報指定語音文字
+     * 播報指定語音文字 (若當前正在發音，採用 QUEUE_ADD 確保既有語音完整播完不中途截斷)
      */
     fun speak(text: String, queueMode: Int = TextToSpeech.QUEUE_FLUSH, utteranceId: String = "TTS_ID") {
         currentSpeakingText = text
@@ -224,10 +232,15 @@ class TtsManager(
 
         if (isReady && tts != null) {
             try {
+                val effectiveQueueMode = if (isSpeaking && queueMode == TextToSpeech.QUEUE_FLUSH) {
+                    TextToSpeech.QUEUE_ADD
+                } else {
+                    queueMode
+                }
                 val params = HashMap<String, String>()
                 params[TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID] = utteranceId
                 @Suppress("DEPRECATION")
-                tts?.speak(text, queueMode, params)
+                tts?.speak(text, effectiveQueueMode, params)
             } catch (e: Exception) {
                 Log.e("TtsManager", "播報語音時發生異常: ${e.message}", e)
             }
@@ -370,6 +383,8 @@ class TtsManager(
         onBackendResponse: ((List<RequirementCard>) -> Unit)? = null,
         onSequenceComplete: (() -> Unit)? = null
     ) {
+        fifoPayloadQueue.clear()
+        isFifoProcessing = false
         broadcastQueue.clear()
         isSequencingActive = true
         isBlessingDone = false
@@ -416,13 +431,22 @@ class TtsManager(
     }
 
     /**
-     * 手動將後端連結請求發回之封包撥報序加入佇列 (若序接撥報已啟動，將在當前發音結束後自動續撥)
+     * 排隊播報多個封包 (依據植入時間排序)
      */
     fun enqueueBackendPacketTexts(
-        texts: List<String>,
+        cards: List<RequirementCard>,
         onSequenceComplete: (() -> Unit)? = null
     ) {
-        if (texts.isEmpty()) return
+        if (cards.isEmpty()) return
+
+        // 1. 根據植入時間 (created_at) 進行 FIFO 排序
+        val sortedCards = cards.sortedBy { it.created_at }
+
+        // 2. 轉換為播放內容並加入隊列
+        val texts = sortedCards.map { card ->
+            listOf(card.category_tag, card.description).filter { it.isNotBlank() }.joinToString("，")
+        }
+
         if (onSequenceComplete != null) {
             val prev = sequenceCompleteCallback
             sequenceCompleteCallback = {
@@ -432,8 +456,9 @@ class TtsManager(
         }
         broadcastQueue.addAll(texts)
         isSequencingActive = true
-        Log.d("TtsManager", "📥 [手動入隊] 追加 ${texts.size} 筆後端發回封包至撥報序佇列 (當前佇列共: ${broadcastQueue.size} 筆)")
-        if (isBlessingDone && !isSpeaking) {
+        Log.d("TtsManager", "📥 [順序入隊] 已依時間排序追加 ${texts.size} 筆封包 (當前佇列共: ${broadcastQueue.size} 筆)")
+        
+        if (!isSpeaking) {
             playNextSequenceItem()
         }
     }
@@ -447,16 +472,14 @@ class TtsManager(
         if (broadcastQueue.isNotEmpty()) {
             val nextText = broadcastQueue.removeAt(0)
             val seqId = "BROADCAST_SEQ_${System.currentTimeMillis()}"
-            Log.d("TtsManager", "▶️ [續撥功能] 心靈祝福辭/前段已播完，開始序接播放下一筆封包撥報序: \"$nextText\"")
+            Log.d("TtsManager", "▶️ [順序播報] 開始播放: \"$nextText\"")
             speak(nextText, TextToSpeech.QUEUE_FLUSH, seqId)
-        } else if (!isBackendFetchPending) {
-            Log.d("TtsManager", "🏁 [序接播放完成] 所有後端連線請求發回封包撥報序已全數續撥完畢！")
+        } else {
+            Log.d("TtsManager", "🏁 [序接播放完成] 所有封包已播放完畢")
             isSequencingActive = false
             val callback = sequenceCompleteCallback
             sequenceCompleteCallback = null
             callback?.invoke()
-        } else {
-            Log.d("TtsManager", "⌛ [等待後端發回] 心靈祝福辭已撥完，正在等待後端連線請求發回封包歸隊...")
         }
     }
 

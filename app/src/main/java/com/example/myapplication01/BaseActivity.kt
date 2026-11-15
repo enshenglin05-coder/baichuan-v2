@@ -10,6 +10,14 @@ open class BaseActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         BaichuanApiService.init(this)
         GlobalTtsPlayer.init(this)
+        DeityBlessingTTS.init(this)
+
+        // 實體執行：初始化零伺服器遠端倉庫目錄與防線
+        try {
+            ServerlessRepositoryInitializer.initializeRepositories(filesDir)
+            AuditBlocklistManager.ensureAuditAndBlocklistRepositoryInitialized(this)
+            TtsRepositoryManager.ensureTtsRepositoryInitialized(this)
+        } catch (_: Throwable) {}
     }
 
     override fun startActivity(intent: Intent?) {

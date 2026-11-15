@@ -1,7 +1,86 @@
 package com.example.myapplication01
 
+import java.util.concurrent.ConcurrentHashMap
+
+/**
+ * 核心資料過濾策略：
+ * 1. 結構或資料異常的卡片：直接捨棄（Drop），不儲存、不排錯、不佔資源。
+ * 2. 遭檢舉的卡片：保留（隔離列管）。
+ * 3.其餘合法卡片：正常納入前端渲染與渲染排序。
+ */
 object ReligionRepository {
+
+    // 遭檢舉卡片之隔離列管區 (Quarantine Store)
+    private val quarantinedReligionCards = ConcurrentHashMap<String, ReligionCard>()
+
+    /**
+     * 依據語言代碼獲取經核心過濾策略處置後之合法卡片清單 (供前端渲染與渲染排序)
+     */
     fun getCardsByLanguage(langCode: String): List<ReligionCard> {
+        val rawCards = getRawCardsByLanguage(langCode)
+        return filterAndSortCards(rawCards)
+    }
+
+    /**
+     * 核心資料過濾與排序管線：
+     * 1. 結構或資料異常 (isValid == false)：直接捨棄 (Drop)，不儲存、不排錯、不佔資源。
+     * 2. 遭檢舉的卡片 (isReported / isQuarantined / reportCount > 0)：保留 (隔離列管)，自前端渲染清單中排除。
+     * 3. 其餘合法卡片：正常納入前端渲染與渲染排序 (依類別權重與 ID 排序)。
+     */
+    fun filterAndSortCards(cards: List<ReligionCard>): List<ReligionCard> {
+        val validCards = mutableListOf<ReligionCard>()
+
+        for (card in cards) {
+            // 策略 1：結構或資料異常的卡片：直接捨棄（Drop），不儲存、不排錯、不佔資源
+            if (!card.isValid()) {
+                continue
+            }
+
+            // 策略 2：遭檢舉的卡片：保留（隔離列管）
+            if (card.isReported || card.isQuarantined || card.reportCount > 0) {
+                quarantinedReligionCards[card.id] = card.copy(isQuarantined = true)
+                continue
+            }
+
+            // 策略 3：其餘合法卡片：正常納入前端渲染與渲染排序
+            validCards.add(card)
+        }
+
+        // 前端渲染排序：依據類別定義權重 (ordinal) 與 ID 排序
+        return validCards.sortedWith(
+            compareBy<ReligionCard> { it.category.ordinal }
+                .thenBy { it.id }
+        )
+    }
+
+    /**
+     * 取得被隔離列管之遭檢舉卡片清單
+     */
+    fun getQuarantinedCards(): List<ReligionCard> {
+        return quarantinedReligionCards.values.toList()
+    }
+
+    /**
+     * 舉報卡片並將其移入隔離列管區
+     */
+    fun reportCard(card: ReligionCard) {
+        if (!card.isValid()) return // 結構異常直接 Drop
+        val quarantinedCard = card.copy(
+            isReported = true,
+            reportCount = card.reportCount + 1,
+            isQuarantined = true
+        )
+        quarantinedReligionCards[quarantinedCard.id] = quarantinedCard
+    }
+
+    /**
+     * 清空隔離區 (測試隔離用)
+     */
+    fun clearQuarantine() {
+        quarantinedReligionCards.clear()
+    }
+
+    private fun getRawCardsByLanguage(langCode: String): List<ReligionCard> {
         return when (langCode) {
             "en" -> listOf(
                 ReligionCard("en_1", R.string.religion_en_christian_title, R.string.religion_en_christian_desc, ReligionCategory.CHRISTIAN),

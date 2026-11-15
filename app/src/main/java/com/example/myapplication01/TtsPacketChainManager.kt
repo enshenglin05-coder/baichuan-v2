@@ -182,7 +182,7 @@ object TtsPacketChainManager {
         }
         isChainPlaying = false
         onSequenceComplete = null
-        safeLogD("TtsPacketChain", "⏹️ 序接播放已強制中止")
+        safeLogD("TtsPacketChain", "⏹️ [強制中斷續撥] 播放佇列已全面清空，聲音已徹底停止，絕對禁止無限續撥與插播循環。")
     }
 
     fun isPlaying(): Boolean = isChainPlaying

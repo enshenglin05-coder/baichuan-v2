@@ -183,10 +183,18 @@ object CardJsonExceptionHandler {
 
     /**
      * 更新人工審核狀態 (支援 忽略 IGNORED / 凍結 FROZEN / 放行 APPROVED)
+     * 當狀態更新為 FROZEN 時，自動納入 BlocklistManager 黑名單進行傳送與拉取雙向攔截。
      */
     fun updateRecordStatus(recordId: String, status: QuarantinedCardRecord.ReviewStatus) {
         quarantinedRecords[recordId]?.let {
             it.status = status
+            if (status == QuarantinedCardRecord.ReviewStatus.FROZEN) {
+                BlocklistManager.block(recordId)
+                safeLogE("CardJsonHandler", "⛔ [黑名單攔截觸發] 已將卡片/裝置 [$recordId] 納入黑名單封鎖")
+            } else if (status == QuarantinedCardRecord.ReviewStatus.IGNORED || status == QuarantinedCardRecord.ReviewStatus.APPROVED) {
+                BlocklistManager.unblock(recordId)
+                safeLogD("CardJsonHandler", "🟢 [黑名單解除] 已將卡片/裝置 [$recordId] 自黑名單移除")
+            }
             safeLogD("CardJsonHandler", "⚙️ 已更新審核紀錄 [$recordId] 狀態為: $status")
         }
     }

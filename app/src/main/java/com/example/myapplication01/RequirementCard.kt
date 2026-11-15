@@ -60,6 +60,15 @@ data class RequirementCard(
     }
 
     /**
+     * 專案核心架構與資料流防線 - 異常與欄位缺失檢查 (Payload Validation & Cleanup):
+     * 結構異常、欄位缺失或格式錯誤的卡片：直接在本地端靜默丟棄 (Drop)，不佔儲存空間、不排錯。
+     */
+    fun isValid(): Boolean {
+        return card_id.isNotBlank() &&
+               com.example.myapplication01.repository.core.MatchingCore.validateCategoryCode(category_code)
+    }
+
+    /**
      * 獲取用於撥號的有效電話號碼 (針對真實卡片與預設卡片統一提煉)
      */
     fun getPhoneForDialing(): String? {

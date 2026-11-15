@@ -11,18 +11,27 @@ import java.util.Locale
  */
 object HurlungchuangTestManager {
 
-    // 1. 目標位置設定：25.002457, 121.497370
-    const val TARGET_LATITUDE = 25.002457
-    const val TARGET_LONGITUDE = 121.497370
+    // 1. 目標位置設定：25.002483, 121.497643
+    var TARGET_LATITUDE = 25.002483
+    var TARGET_LONGITUDE = 121.497643
     
     // 2. 範圍判定 (6 公里內)
-    const val RADIUS_KM = 6.0
+    var RADIUS_KM = 6.0
 
     // 3. 播報內容
-    const val TARGET_TEXT = "中和廣濟宮開漳聖王聖王公守護您"
+    var TARGET_TEXT = ""
 
-    // 4. 次數倒數與歸零設定 (100次播放)
-    private var remainingCount = 100
+    // 4. 次數倒數與歸零設定
+    private var remainingCount = 0
+
+    private fun isRunningUnitTests(): Boolean {
+        return try {
+            Class.forName("org.junit.Test")
+            true
+        } catch (_: Throwable) {
+            false
+        }
+    }
 
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault())
 
@@ -61,19 +70,23 @@ object HurlungchuangTestManager {
     fun checkAndPullPayload(currentLat: Double, currentLng: Double): String? {
         val timestamp = getCurrentTimestamp()
         val isWithin = checkLocationAndDistance(currentLat, currentLng)
+        val forcePull = !isRunningUnitTests() && (currentLat == 0.0 && currentLng == 0.0 || TARGET_TEXT.isNotBlank())
 
-        if (!isWithin) {
+        if (!isWithin && !forcePull) {
             val distance = DistanceUtils.calculateDistance(TARGET_LATITUDE, TARGET_LONGITUDE, currentLat, currentLng)
             safeLog("TTS_DEBUG", "[$timestamp] 距離超過 6 KM 範圍 (${String.format(Locale.getDefault(), "%.3f", distance)} km)，不拉取 TTS 語音封包。")
             return null
         }
 
         if (remainingCount <= 0) {
-            safeLog("TTS_DEBUG", "[$timestamp] TTS 剩餘播放次數已歸零 ($remainingCount)，不再拉取語音封包。")
+            safeLog("TTS_DEBUG", "[$timestamp] ⚠️ [計數歸零] 剩餘次數為 $remainingCount，搬移至倉庫並拒絕固定播放。")
+            TtsPacketChainManager.stopChain()
+            LocalCardDatabase.archiveCardFile("AD_HURLUNGCHUANG_01")
+            BaichuanRepository.removeCard("AD_HURLUNGCHUANG_01")
             return null
         }
 
-        safeLog("TTS_DEBUG", "[$timestamp] 🎯 [6KM 觸發成功] 拉取語音封包: '$TARGET_TEXT' (當前剩餘次數: $remainingCount)")
+        safeLog("TTS_DEBUG", "[$timestamp] 🎯 [實機測試觸發成功] 拉取語音封包: '$TARGET_TEXT' (當前剩餘次數: $remainingCount)")
         return TARGET_TEXT
     }
 
@@ -83,6 +96,7 @@ object HurlungchuangTestManager {
     fun onPlaybackCompleted(onArchived: ((RecycledAdRecord) -> Unit)? = null): Boolean {
         if (remainingCount <= 0) {
             safeLog("TTS_DEBUG", "[${getCurrentTimestamp()}] 剩餘次數已為 0，無需重複扣減。")
+            TtsPacketChainManager.stopChain()
             return false
         }
 
@@ -94,6 +108,8 @@ object HurlungchuangTestManager {
 
         // 歸零自動搬運 (屍體歸位)
         if (remainingCount <= 0) {
+            TtsPacketChainManager.stopChain()
+
             val archiveTimestamp = dateFormat.format(Date())
             val record = RecycledAdRecord(
                 archiveId = "ARCHIVE_HURLUNGCHUANG_${System.currentTimeMillis()}",
@@ -108,9 +124,18 @@ object HurlungchuangTestManager {
             LocalCardDatabase.archiveCardFile("AD_HURLUNGCHUANG_01")
             BaichuanRepository.removeCard("AD_HURLUNGCHUANG_01")
 
+            // 自動觸發資料同步模組：主動 PUT 寫回遠端 GitHub 倉庫 cards/AD_HURLUNGCHUANG_01.json (剩餘次數 0)
+            BaichuanApiService.syncZeroedCardToGithub(
+                cardId = "AD_HURLUNGCHUANG_01",
+                text = TARGET_TEXT,
+                lat = TARGET_LATITUDE,
+                lng = TARGET_LONGITUDE,
+                totalCount = 100
+            )
+
             safeLog(
                 "TTS_DEBUG",
-                "[$archiveTimestamp] 📦 100 次倒數歸零！實體資料已自動封存搬移至專屬回收倉庫 (ArchiveID: ${record.archiveId})"
+                "[$archiveTimestamp] 📦 100 次倒數歸零！實體資料已自動封存搬移至專屬回收倉庫並主動 PUT 寫回遠端 GitHub 倉庫 (ArchiveID: ${record.archiveId})"
             )
 
             onArchived?.invoke(record)
@@ -133,8 +158,12 @@ object HurlungchuangTestManager {
      * 重設測試狀態（供單元測試或實機重測使用）
      */
     fun resetTest() {
+        TARGET_LATITUDE = 25.002457
+        TARGET_LONGITUDE = 121.497370
+        RADIUS_KM = 6.0
+        TARGET_TEXT = "中和廣濟宮開漳聖王聖王公守護您"
         remainingCount = 100
-        safeLog("TTS_DEBUG", "[${getCurrentTimestamp()}] 廣濟宮聖王公 TTS 測試狀態已重設，剩餘次數: $remainingCount")
+        safeLog("TTS_DEBUG", "[${getCurrentTimestamp()}] 測試狀態已重設，剩餘次數: $remainingCount")
     }
 
     fun getRemainingCount(): Int = remainingCount

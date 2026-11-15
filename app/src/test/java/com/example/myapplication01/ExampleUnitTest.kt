@@ -765,6 +765,7 @@ class ExampleUnitTest {
         // 測試完畢清理環境，避免影響其他單元測試
         LocalCardDatabase.clearAll()
         BaichuanRepository.clearAll()
+        TtsAdManager.updateAdList(emptyList())
     }
 
     @Test
@@ -1070,7 +1071,178 @@ class ExampleUnitTest {
         assertEquals("1A", drawer1)
 
         val (sec2, drawer2) = AppWebViewClient.parseSectionCodeAndDrawerType("https://example.com/#expand_section_4_2_1B")
+        assertEquals("2-4", sec2.takeIf { false } ?: sec2) // helper check
         assertEquals("4-2", sec2)
         assertEquals("1B", drawer2)
+    }
+
+    @Test
+    fun testCoreDataFilteringStrategy() {
+        ReligionRepository.clearQuarantine()
+
+        val validCard1 = ReligionCard("test_1", R.string.religion_tw_tudigong_title, R.string.religion_tw_tudigong_desc, ReligionCategory.ELDER)
+        val validCard2 = ReligionCard("test_2", R.string.religion_tw_mazu_title, R.string.religion_tw_mazu_desc, ReligionCategory.COMPASSION)
+
+        // 1. 結構或資料異常的卡片 (id 為空或 resId 為 0)
+        val invalidCard = ReligionCard("", 0, 0, ReligionCategory.GENERAL)
+        assertFalse(invalidCard.isValid())
+
+        // 2. 遭檢舉的卡片
+        val reportedCard = ReligionCard("test_3", R.string.religion_tw_guangong_title, R.string.religion_tw_guangong_desc, ReligionCategory.WARRIOR, isReported = true, reportCount = 1)
+
+        val rawList = listOf(validCard1, invalidCard, reportedCard, validCard2)
+        val filtered = ReligionRepository.filterAndSortCards(rawList)
+
+        // 驗證 1: 結構異常卡片直接 Drop
+        assertFalse(filtered.any { !it.isValid() })
+
+        // 驗證 2: 遭檢舉卡片被隔離列管
+        assertFalse(filtered.any { it.id == "test_3" })
+        val quarantined = ReligionRepository.getQuarantinedCards()
+        assertEquals(1, quarantined.size)
+        assertEquals("test_3", quarantined.first().id)
+        assertTrue(quarantined.first().isQuarantined)
+
+        // 驗證 3: 合法卡片正常納入渲染與排序
+        assertEquals(2, filtered.size)
+        assertEquals("test_1", filtered[0].id)
+        assertEquals("test_2", filtered[1].id)
+    }
+
+    @Test
+    fun testNativeServerlessArchitectureDefenseRules() {
+        BlocklistManager.clearAll()
+        CardJsonExceptionHandler.clearAll()
+
+        // 1. 傳送與拉取攔截 (Blocklist Enforcement)
+        val blockedDeviceId = "BLOCKED_DEVICE_999"
+        val blockedCardId = "BLOCKED_CARD_999"
+        BlocklistManager.block(blockedDeviceId)
+        BlocklistManager.block(blockedCardId)
+
+        assertTrue(BlocklistManager.isBlocked(blockedDeviceId))
+        assertTrue(BlocklistManager.isSendBlocked(blockedDeviceId, "CARD_001"))
+        assertTrue(BlocklistManager.isPullBlocked("NORMAL_DEVICE", blockedCardId))
+        assertFalse(BlocklistManager.isSendBlocked("NORMAL_DEVICE", "NORMAL_CARD"))
+
+        val blockedCard = RequirementCard(
+            card_id = "BLOCKED_CARD_999",
+            publisher_device_id = "NORMAL_DEVICE",
+            category_code = "1-1",
+            drawer_type = "1A"
+        )
+        var sendError: String? = null
+        BaichuanRepository.addOrUpdateCard(blockedCard, onSuccess = {}, onError = { sendError = it })
+        assertNotNull(sendError)
+        assertTrue(sendError!!.contains("黑名單"))
+
+        // 2. 異常與欄位缺失靜默丟棄 (Payload Validation & Cleanup)
+        val invalidCard = RequirementCard(
+            card_id = "", // 缺 ID (結構異常)
+            category_code = "INVALID_CODE"
+        )
+        assertFalse(invalidCard.isValid())
+
+        var invalidError: String? = null
+        BaichuanRepository.addOrUpdateCard(invalidCard, onSuccess = {}, onError = { invalidError = it })
+        assertNotNull(invalidError)
+        assertTrue(invalidError!!.contains("靜默丟棄"))
+
+        // 3. 原生 128 色流彩 Spectrum 色彩數量檢查
+        assertEquals(128, RainbowEngine.colors128.size)
+        assertEquals(128, RainbowEngine.colorInts.size)
+    }
+
+    @Test
+    fun testAuditBlocklistRepositoryInitialization() {
+        val auditDir = AuditBlocklistManager.ensureAuditAndBlocklistRepositoryInitialized(null)
+        assertNotNull(auditDir)
+        assertTrue(auditDir.exists())
+        assertTrue(auditDir.isDirectory)
+        assertTrue(auditDir.absolutePath.contains("audit_blocklist_repo"))
+
+        val testCardId = "audit_card_test_999"
+        val testJson = "{\"card_id\":\"$testCardId\",\"reason\":\"reported\"}"
+        val pushedFile = AuditBlocklistManager.pushToAuditRepository(testCardId, testJson, null)
+        assertNotNull(pushedFile)
+        assertTrue(pushedFile!!.exists())
+
+        val auditedCards = AuditBlocklistManager.getAuditedCards(null)
+        assertTrue(auditedCards.any { it.contains(testCardId) })
+
+        val removed = AuditBlocklistManager.removeAuditCard(testCardId, null)
+        assertTrue(removed)
+    }
+
+    @Test
+    fun testTtsRepositoryInitialization() {
+        val ttsDir = TtsRepositoryManager.ensureTtsRepositoryInitialized(null)
+        assertNotNull(ttsDir)
+        assertTrue(ttsDir.exists())
+        assertTrue(ttsDir.isDirectory)
+        assertTrue(ttsDir.absolutePath.contains("tts_repository_folder"))
+
+        val packetId = "tts_packet_test_100"
+        val packetFile = TtsRepositoryManager.saveTtsPacket(packetId, "測試每兩分鐘自動推播 TTS 語音封包", 100, null)
+        assertNotNull(packetFile)
+        assertTrue(packetFile!!.exists())
+
+        val packets = TtsRepositoryManager.loadAllTtsPackets(null)
+        assertTrue(packets.any { it.packetId == packetId && it.remainingCount == 100 })
+
+        val deleted = TtsRepositoryManager.deleteTtsPacket(packetId, null)
+        assertTrue(deleted)
+    }
+
+    @Test
+    fun testServerlessRepositoryInitializer() {
+        val tempDir = java.io.File(System.getProperty("java.io.tmpdir") ?: "/tmp", "serverless_test_${System.currentTimeMillis()}")
+        tempDir.mkdirs()
+
+        ServerlessRepositoryInitializer.initializeRepositories(tempDir)
+
+        val ttsFolder = java.io.File(tempDir, ServerlessRepositoryInitializer.TTS_REPOSITORY_FOLDER)
+        val auditFolder = java.io.File(tempDir, ServerlessRepositoryInitializer.AUDIT_BLOCKLIST_REPO)
+
+        assertTrue(ttsFolder.exists())
+        assertTrue(java.io.File(ttsFolder, ".gitkeep").exists())
+
+        assertTrue(auditFolder.exists())
+        assertTrue(java.io.File(auditFolder, ".gitkeep").exists())
+
+        tempDir.deleteRecursively()
+    }
+
+    @Test
+    fun testTtsAuditPacket() {
+        val packet = TtsAuditPacket(
+            cardId = "card_123",
+            senderId = "sender_456",
+            totalQuota = 5,
+            remainingQuota = 5
+        )
+
+        assertEquals(5, packet.remainingQuota)
+        assertFalse(packet.isCompleted)
+
+        val success = packet.triggerTouch(25.033, 121.565, "測試語音播報內容")
+        assertTrue(success)
+        assertEquals(4, packet.remainingQuota)
+        assertEquals(1, packet.transmissionLogs.size)
+        assertEquals(1, packet.transmissionLogs[0].sequence)
+        assertEquals("測試語音播報內容", packet.transmissionLogs[0].speechContent)
+
+        val jsonObj = packet.toJson()
+        assertEquals("card_123", jsonObj.getString("cardId"))
+        assertEquals(4, jsonObj.getInt("remainingQuota"))
+        assertEquals(1, jsonObj.getJSONArray("transmissionLogs").length())
+    }
+
+    @Test
+    fun testTtsAndSecurityGuard() {
+        TtsAndSecurityGuard.updateBlocklist(listOf("bad_sender_1", "bad_sender_2"))
+        assertTrue(TtsAndSecurityGuard.isBlocked("bad_sender_1"))
+        assertFalse(TtsAndSecurityGuard.isBlocked("good_sender"))
+        TtsAndSecurityGuard.validateTtsIsolation()
     }
 }

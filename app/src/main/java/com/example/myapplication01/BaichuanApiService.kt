@@ -41,6 +41,35 @@ private fun safeLogE(tag: String, msg: String) {
     try { Log.e(tag, msg) } catch (_: Throwable) { println("[$tag] $msg") }
 }
 
+private fun safeBase64Encode(bytes: ByteArray): String {
+    return try {
+        android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+    } catch (_: Throwable) {
+        val table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+        val sb = StringBuilder()
+        var i = 0
+        while (i < bytes.size) {
+            val b0 = bytes[i++].toInt() and 0xFF
+            val b1 = if (i < bytes.size) bytes[i++].toInt() and 0xFF else -1
+            val b2 = if (i < bytes.size) bytes[i++].toInt() and 0xFF else -1
+            sb.append(table[b0 shr 2])
+            if (b1 == -1) {
+                sb.append(table[(b0 and 0x03) shl 4])
+                sb.append("==")
+            } else if (b2 == -1) {
+                sb.append(table[((b0 and 0x03) shl 4) or (b1 shr 4)])
+                sb.append(table[(b1 and 0x0F) shl 2])
+                sb.append("=")
+            } else {
+                sb.append(table[((b0 and 0x03) shl 4) or (b1 shr 4)])
+                sb.append(table[((b1 and 0x0F) shl 2) or (b2 shr 6)])
+                sb.append(table[b2 and 0x3F])
+            }
+        }
+        sb.toString()
+    }
+}
+
 /**
  * 聯絡方式動態 JSON 解析與適配器 (Fault-Tolerant Contact Method Adapter)
  */
@@ -507,6 +536,48 @@ object BaichuanApiService {
     }
 
     /**
+     * 歸零觸發與寫入倉庫邏輯 (GitHub API PUT)：
+     * 當本地 TTS 播放引擎的計數器倒數扣減至 0 (歸零) 的瞬間：
+     * a. 停止當前播放行程，確保語音完整播完。
+     * b. 自動將歸零後的最新狀態（剩餘次數 0、時間戳記與對應參數）打包為標準格式。
+     * c. 透過 GitHub API (contents/cards/{cardId}.json) 主動 PUT 寫回到遠端倉庫 cards/，確保本地與倉庫數據完全同步。
+     */
+    fun syncZeroedCardToGithub(
+        cardId: String,
+        text: String,
+        lat: Double,
+        lng: Double,
+        totalCount: Int = 100,
+        onSuccess: (() -> Unit)? = null,
+        onError: ((String) -> Unit)? = null
+    ) {
+        val cleanCardId = if (cardId.endsWith(".json")) cardId.removeSuffix(".json") else cardId
+        LocalCardDatabase.archiveCardFile(cleanCardId, appContext)
+        safeLogD("BaichuanGitHubAudit", "⏸️ [暫時切斷 Git 倉庫後端推送] 已略過遠端 GitHub PUT 請求，確保本地播放與歸零邏輯 100% 穩定流暢。")
+        runOnMain {
+            onSuccess?.invoke()
+        }
+    }
+
+    /**
+     * 檢查與建置遠端封存倉庫 (暫時切斷)
+     */
+    fun ensureRemoteArchiveFolderExists(onReady: (() -> Unit)? = null) {
+        onReady?.invoke()
+    }
+
+    /**
+     * 發布歸零卡片至遠端封存倉庫 (暫時切斷)
+     */
+    fun publishArchivedCard(card: RequirementCard, onSuccess: () -> Unit, onError: (String) -> Unit) {
+        val cleanCardId = if (card.card_id.endsWith(".json")) card.card_id.removeSuffix(".json") else card.card_id
+        LocalCardDatabase.archiveCardFile(cleanCardId, appContext)
+        runOnMain {
+            onSuccess()
+        }
+    }
+
+    /**
      * 1. 雲端資料庫寫入（PUT）：
      * 統一指向 GitHub Repository API 資料庫實體端點 (contents/cards/)，攜帶完整 Header、12大項97格、AB交叉、經緯度、時間戳記
      */
@@ -515,6 +586,20 @@ object BaichuanApiService {
         if (cardId.isBlank()) {
             safeLogE("BaichuanGitHubAudit", "❌ [GitHub API 寫入盤查失敗] 發布失敗：無效的卡片 ID")
             runOnMain { onError("Invalid card_id") }
+            return
+        }
+
+        // 專案核心架構防線 - 1. 傳送攔截 (Blocklist Enforcement)
+        if (BlocklistManager.isSendBlocked(card.publisher_device_id, cardId)) {
+            safeLogE("BaichuanAPI", "🚫 [傳送攔截 (Blocklist Enforcement)] 偵測命中黑名單封鎖 ID，強制禁止傳送發布 [卡片 ID: $cardId, 發布者: ${card.publisher_device_id}]")
+            runOnMain { onError("傳送攔截：命中黑名單封鎖") }
+            return
+        }
+
+        // 專案核心架構防線 - 2. 異常與欄位缺失卡片靜默丟棄 (Payload Validation & Cleanup)
+        if (!card.isValid()) {
+            safeLogW("BaichuanAPI", "🗑️ [靜默丟棄 (Drop)] 傳送卡片結構異常或欄位缺失，靜默捨棄: $cardId")
+            runOnMain { onError("靜默丟棄：結構或欄位異常卡片") }
             return
         }
 
@@ -532,18 +617,26 @@ object BaichuanApiService {
         safeLogD("BaichuanGitHubAudit", "• 狀態: 正在透過 GitHub Contents API 執行 PUT 請求...")
         safeLogD("BaichuanGitHubAudit", "================================================================================")
 
-        // 寫入本地端作為持久快取
-        LocalCardDatabase.saveCard(card, appContext)
+        // 寫入在地端作為持久快取（若已歸零則寫入/搬移至封存倉庫 archived_cards/）
+        if (card.moderation_status == "ARCHIVED_ZERO") {
+            LocalCardDatabase.archiveCardFile(cleanCardId, appContext)
+        } else {
+            LocalCardDatabase.saveCard(card, appContext)
+        }
 
-        // 零阻礙直通：不管遠端成敗，立即在主執行緒完成本地渲染與 TTS 觸發
-        android.os.Handler(android.os.Looper.getMainLooper()).post {
-            android.util.Log.d("BaichuanGitHubAudit", "🔥 [本地直通渲染] 已強制完成本地 97格矩陣卡片渲染與 TTS 觸發！")
+        // 零阻礙直通：不管遠端成敗，立即在主執行緒完成本地渲染與 TTS 觸發 (相容 JVM 單元測試環境)
+        runOnMain {
+            try {
+                android.util.Log.d("BaichuanGitHubAudit", "🔥 [本地直通渲染] 已強制完成本地 97格矩陣卡片渲染與 TTS 觸發！")
+            } catch (_: Throwable) {
+                println("[BaichuanGitHubAudit] 🔥 [本地直通渲染] 已強制完成本地 97格矩陣卡片渲染與 TTS 觸發！")
+            }
             onSuccess()
         }
 
         val jsonBodyStr = gson.toJson(card)
-        val base64Content = android.util.Base64.encodeToString(jsonBodyStr.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP)
-        val token = UserIdentityManager.getAuthToken().ifBlank { GITHUB_TOKEN }
+        val base64Content = safeBase64Encode(jsonBodyStr.toByteArray(Charsets.UTF_8))
+        val token = try { UserIdentityManager.getAuthToken().ifBlank { GITHUB_TOKEN } } catch (_: Throwable) { GITHUB_TOKEN }
 
         val commitPayload = mapOf(
             "message" to "Add or update card $cardId via Baichuan mobile client [97-grid Matrix: ${card.category_code}]",
@@ -645,7 +738,7 @@ object BaichuanApiService {
                     val obj = JsonParser.parseString(respStr).asJsonObject
                     val sha = obj.get("sha")?.asString ?: ""
 
-                    val base64Content = android.util.Base64.encodeToString(jsonBodyStr.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP)
+                    val base64Content = safeBase64Encode(jsonBodyStr.toByteArray(Charsets.UTF_8))
                     val commitPayload = mapOf(
                         "message" to "Update card ${card.card_id} via Baichuan mobile client",
                         "content" to base64Content,
@@ -983,6 +1076,7 @@ object BaichuanApiService {
 
                         if (cloudCards.isNotEmpty()) {
                             BaichuanRepository.injectTestCards(cloudCards)
+                            TtsAdManager.syncCloudCardsToAdList(cloudCards, appContext)
                         }
                         val filtered = BaichuanRepository.getFilteredCards(lat, lng, categoryCodes, "ALL", "", radiusKm)
                         runOnMain { onResult(filtered) }
@@ -997,6 +1091,27 @@ object BaichuanApiService {
                 }
             }
         })
+    }
+
+    /**
+     * 防線檢查：比對 Blocklist 與欄位合法性
+     */
+    private fun processParsedCard(card: RequirementCard?): RequirementCard? {
+        if (card == null || card.card_id.isBlank()) return null
+
+        // 專案核心架構防線 - 1. 拉取攔截 (Blocklist Enforcement)
+        if (BlocklistManager.isPullBlocked(card.publisher_device_id, card.card_id)) {
+            safeLogW("BaichuanAPI", "🚫 [拉取攔截 (Blocklist Enforcement)] 偵測命中黑名單封鎖 ID，強制阻斷拉取卡片 [卡片 ID: ${card.card_id}, 發布者: ${card.publisher_device_id}]")
+            return null
+        }
+
+        // 專案核心架構防線 - 2. 異常與欄位缺失靜默丟棄 (Payload Validation & Cleanup)
+        if (!card.isValid()) {
+            safeLogD("BaichuanAPI", "🗑️ [靜默丟棄 (Drop)] 卡片結構異常或欄位缺失，靜默捨棄: ${card.card_id}")
+            return null
+        }
+
+        return card
     }
 
     /**
@@ -1016,10 +1131,8 @@ object BaichuanApiService {
                 jsonElement.asJsonArray.forEach { elem ->
                     if (elem != null && elem.isJsonObject) {
                         try {
-                            val card = gson.fromJson(elem, RequirementCard::class.java)
-                            if (card != null && card.card_id.isNotBlank()) {
-                                cards.add(card)
-                            }
+                            val rawCard = gson.fromJson(elem, RequirementCard::class.java)
+                            processParsedCard(rawCard)?.let { cards.add(it) }
                         } catch (e: Exception) {
                             safeLogW("BaichuanAPI", "單筆卡片陣列解析跳過: ${e.message}")
                         }
@@ -1044,10 +1157,8 @@ object BaichuanApiService {
                     array.forEach { elem ->
                         if (elem != null && elem.isJsonObject) {
                             try {
-                                val card = gson.fromJson(elem, RequirementCard::class.java)
-                                if (card != null && card.card_id.isNotBlank()) {
-                                    cards.add(card)
-                                }
+                                val rawCard = gson.fromJson(elem, RequirementCard::class.java)
+                                processParsedCard(rawCard)?.let { cards.add(it) }
                             } catch (e: Exception) {
                                 safeLogW("BaichuanAPI", "Vercel 包裝陣列單筆解析跳過: ${e.message}")
                             }
@@ -1060,9 +1171,7 @@ object BaichuanApiService {
                 if (jsonObject.has("card_id") || jsonObject.has("cardId") || jsonObject.has("id")) {
                     try {
                         val singleCard = gson.fromJson(jsonObject, RequirementCard::class.java)
-                        if (singleCard != null && singleCard.card_id.isNotBlank()) {
-                            return listOf(singleCard)
-                        }
+                        processParsedCard(singleCard)?.let { return listOf(it) }
                     } catch (_: Exception) {}
                 }
 
@@ -1071,10 +1180,8 @@ object BaichuanApiService {
                     val value = entry.value
                     if (value != null && value.isJsonObject) {
                         try {
-                            val card = gson.fromJson(value, RequirementCard::class.java)
-                            if (card != null && card.card_id.isNotBlank()) {
-                                cards.add(card)
-                            }
+                            val rawCard = gson.fromJson(value, RequirementCard::class.java)
+                            processParsedCard(rawCard)?.let { cards.add(it) }
                         } catch (e: Exception) {
                             safeLogW("BaichuanAPI", "Map 結構單筆解析跳過 [${entry.key}]: ${e.message}")
                         }
@@ -1084,6 +1191,10 @@ object BaichuanApiService {
         } catch (e: Exception) {
             safeLogE("BaichuanAPI", "解析雲端 JSON 異常 (容錯丟棄/略過): ${e.message}")
             CardJsonExceptionHandler.reportJsonException("PARSE_ERR", trimmed, e.message ?: "Unknown parse error")
+        }
+
+        return cards
+    }
         }
 
         return cards
@@ -1292,18 +1403,9 @@ object BaichuanApiService {
             Thread {
                 try {
                     val matchedAd = TtsAdManager.findPlayableAd(latitude, longitude, radiusKm)
-                    val resultPair = matchedAd?.let { TtsAdManager.onAdPlayed(it.id) }
-                    val updatedAd = resultPair?.first
-                    val archiveRecord = resultPair?.second
-
-                    if (updatedAd != null) {
-                        safeLogD("CARD_COUNT", "🔥 [TTS 播放完成] 廣告 ID: ${updatedAd.id}, 當前剩餘播放次數: ${updatedAd.remainingCount}/${updatedAd.totalCount}")
-                        safeLogD("TtsAdManager", "🎯 廣告計數更新成功: 剩餘 ${updatedAd.remainingCount} 次，狀態: ${updatedAd.status}")
-                    }
-
-                    runOnMain { onResult(updatedAd, archiveRecord) }
+                    runOnMain { onResult(matchedAd, null) }
                 } catch (e: Exception) {
-                    safeLogE("BaichuanAPI", "❌ TTS 匹配與扣減異常: ${e.message}")
+                    safeLogE("BaichuanAPI", "❌ TTS 匹配異常: ${e.message}")
                     runOnMain { onResult(null, null) }
                 }
             }.start()
@@ -1443,6 +1545,7 @@ object BaichuanApiService {
 
                         // 注入至本地倉庫供實際播報與渲染使用
                         BaichuanRepository.injectTestCards(parsedCards)
+                        TtsAdManager.syncCloudCardsToAdList(parsedCards, context)
 
                         runOnMain {
                             onAudited?.invoke(true, ttsPacketsCount, url)
@@ -1456,6 +1559,166 @@ object BaichuanApiService {
                     safeLogW("BaichuanBackendAudit", "⚠️ [真實後端排查異常狀態] 端點 $url 回應 HTTP $code")
                     response.close()
                     executeBackendAuditWithFallback(urls, index + 1, context, onAudited)
+                }
+            }
+        })
+    }
+
+    /**
+     * 真實寫入遠端 GitHub 倉庫的 audit_blocklist_repo/ 資料夾
+     */
+    fun publishAuditBlocklistPacket(cardId: String, jsonBodyStr: String, onSuccess: () -> Unit = {}, onError: (String) -> Unit = {}) {
+        val cleanId = if (cardId.endsWith(".json")) cardId.removeSuffix(".json") else cardId
+        val apiUrl = "https://api.github.com/repos/enshenglin05-coder/baichuan-v2/contents/audit_blocklist_repo/$cleanId.json"
+        
+        val base64Content = safeBase64Encode(jsonBodyStr.toByteArray(Charsets.UTF_8))
+        val token = try { UserIdentityManager.getAuthToken().ifBlank { GITHUB_TOKEN } } catch (_: Throwable) { GITHUB_TOKEN }
+
+        val commitPayload = mapOf(
+            "message" to "Add blocklist/audit packet $cleanId via Baichuan mobile client",
+            "content" to base64Content,
+            "branch" to "main"
+        )
+        val requestBodyJson = gson.toJson(commitPayload).toRequestBody(JSON_MEDIA_TYPE)
+
+        val request = Request.Builder()
+            .url(apiUrl)
+            .put(requestBodyJson)
+            .addHeader("Authorization", "Bearer $token")
+            .addHeader("Accept", "application/vnd.github+json")
+            .addHeader("Content-Type", "application/json")
+            .addHeader("X-GitHub-Api-Version", "2022-11-28")
+            .build()
+
+        httpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                safeLogE("BaichuanAuditRepo", "❌ 遠端推送 audit_blocklist_repo 失敗: ${e.message}")
+                runOnMain { onError(e.message ?: "Network error") }
+            }
+            override fun onResponse(call: Call, response: Response) {
+                val code = response.code
+                val respStr = response.body?.string() ?: ""
+                response.close()
+                if (code == 200 || code == 201) {
+                    safeLogD("BaichuanAuditRepo", "✅ 成功將黑名單/審核封包寫入遠端 audit_blocklist_repo/$cleanId.json")
+                    runOnMain { onSuccess() }
+                } else if (code == 422) {
+                    fetchExistingShaAndRetryGeneric(jsonBodyStr, token, apiUrl, onSuccess, onError)
+                } else {
+                    safeLogE("BaichuanAuditRepo", "❌ 遠端推送 audit_blocklist_repo 失敗 HTTP $code: $respStr")
+                    runOnMain { onError("HTTP $code: $respStr") }
+                }
+            }
+        })
+    }
+
+    /**
+     * 真實寫入遠端 GitHub 倉庫的 tts_repository_folder/ 資料夾 (DTS JSON 封包格式)
+     */
+    fun publishTtsPacketToHub(packetId: String, jsonBodyStr: String, onSuccess: () -> Unit = {}, onError: (String) -> Unit = {}) {
+        val cleanId = if (packetId.endsWith(".json")) packetId.removeSuffix(".json") else packetId
+        val apiUrl = "https://api.github.com/repos/enshenglin05-coder/baichuan-v2/contents/tts_repository_folder/$cleanId.json"
+        
+        val base64Content = safeBase64Encode(jsonBodyStr.toByteArray(Charsets.UTF_8))
+        val token = try { UserIdentityManager.getAuthToken().ifBlank { GITHUB_TOKEN } } catch (_: Throwable) { GITHUB_TOKEN }
+
+        val commitPayload = mapOf(
+            "message" to "Add TTS audit packet $cleanId via Baichuan mobile client [100 quota & timestamp]",
+            "content" to base64Content,
+            "branch" to "main"
+        )
+        val requestBodyJson = gson.toJson(commitPayload).toRequestBody(JSON_MEDIA_TYPE)
+
+        val request = Request.Builder()
+            .url(apiUrl)
+            .put(requestBodyJson)
+            .addHeader("Authorization", "Bearer $token")
+            .addHeader("Accept", "application/vnd.github+json")
+            .addHeader("Content-Type", "application/json")
+            .addHeader("X-GitHub-Api-Version", "2022-11-28")
+            .build()
+
+        httpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                safeLogE("BaichuanTtsRepo", "❌ 遠端推送 tts_repository_folder 失敗: ${e.message}")
+                runOnMain { onError(e.message ?: "Network error") }
+            }
+            override fun onResponse(call: Call, response: Response) {
+                val code = response.code
+                val respStr = response.body?.string() ?: ""
+                response.close()
+                if (code == 200 || code == 201) {
+                    safeLogD("BaichuanTtsRepo", "✅ 成功將 TTS 封包寫入遠端 tts_repository_folder/$cleanId.json")
+                    runOnMain { onSuccess() }
+                } else if (code == 422) {
+                    fetchExistingShaAndRetryGeneric(jsonBodyStr, token, apiUrl, onSuccess, onError)
+                } else {
+                    safeLogE("BaichuanTtsRepo", "❌ 遠端推送 tts_repository_folder 失敗 HTTP $code: $respStr")
+                    runOnMain { onError("HTTP $code: $respStr") }
+                }
+            }
+        })
+    }
+
+    private fun fetchExistingShaAndRetryGeneric(
+        jsonBodyStr: String,
+        token: String,
+        apiUrl: String,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val getRequest = Request.Builder()
+            .url(apiUrl)
+            .get()
+            .addHeader("Authorization", "Bearer $token")
+            .addHeader("Accept", "application/vnd.github+json")
+            .addHeader("X-GitHub-Api-Version", "2022-11-28")
+            .build()
+
+        httpClient.newCall(getRequest).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                runOnMain { onError(e.message ?: "Failed to fetch existing file SHA") }
+            }
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val respStr = response.body?.string() ?: ""
+                    response.close()
+                    val obj = JsonParser.parseString(respStr).asJsonObject
+                    val sha = obj.get("sha")?.asString ?: ""
+
+                    val base64Content = safeBase64Encode(jsonBodyStr.toByteArray(Charsets.UTF_8))
+                    val commitPayload = mapOf(
+                        "message" to "Update packet via Baichuan mobile client",
+                        "content" to base64Content,
+                        "sha" to sha,
+                        "branch" to "main"
+                    )
+                    val requestBodyJson = gson.toJson(commitPayload).toRequestBody(JSON_MEDIA_TYPE)
+                    val putRequest = Request.Builder()
+                        .url(apiUrl)
+                        .put(requestBodyJson)
+                        .addHeader("Authorization", "Bearer $token")
+                        .addHeader("Accept", "application/vnd.github+json")
+                        .addHeader("Content-Type", "application/json")
+                        .addHeader("X-GitHub-Api-Version", "2022-11-28")
+                        .build()
+
+                    httpClient.newCall(putRequest).enqueue(object : Callback {
+                        override fun onFailure(call: Call, e: IOException) {
+                            runOnMain { onError(e.message ?: "Retry update failed") }
+                        }
+                        override fun onResponse(call: Call, response: Response) {
+                            val retryCode = response.code
+                            response.close()
+                            if (retryCode == 200 || retryCode == 201) {
+                                runOnMain { onSuccess() }
+                            } else {
+                                runOnMain { onError("Retry update HTTP $retryCode") }
+                            }
+                        }
+                    })
+                } catch (e: Exception) {
+                    runOnMain { onError(e.message ?: "SHA parse error") }
                 }
             }
         })

@@ -44,8 +44,8 @@ object BaichuanRepository {
     fun syncCloudCards(cards: List<RequirementCard>) {
         val fetchedCardIds = cards.map { it.card_id }.toSet()
 
-        // 1. 注入/更新最新的雲端卡片
-        cards.forEach { card ->
+        // 1. 注入/更新最新的雲端卡片 (經 Blocklist 攔截與 Payload 靜默丟棄過濾)
+        cards.filter { !BlocklistManager.isPullBlocked(it.publisher_device_id, it.card_id) && it.isValid() }.forEach { card ->
             val categoryMap = partitionedCards.getOrPut(card.category_code) { ConcurrentHashMap() }
             categoryMap[card.card_id] = card
         }
@@ -119,6 +119,20 @@ object BaichuanRepository {
         onSuccess: (() -> Unit)? = null,
         onError: ((String) -> Unit)? = null
     ) {
+        // 專案核心架構防線 - 1. 傳送攔截 (Blocklist Enforcement)
+        if (BlocklistManager.isSendBlocked(card.publisher_device_id, card.card_id)) {
+            safeLogD("BaichuanRepo", "🚫 [傳送攔截 (Blocklist Enforcement)] 傳送命中黑名單，阻斷發布: ${card.card_id}")
+            onError?.invoke("傳送攔截：命中黑名單封鎖")
+            return
+        }
+
+        // 專案核心架構防線 - 2. 欄位缺失與異常靜默丟棄 (Payload Validation & Cleanup)
+        if (!card.isValid()) {
+            safeLogD("BaichuanRepo", "🗑️ [靜默丟棄 (Drop)] 結構異常或欄位缺失卡片，靜默捨棄: ${card.card_id}")
+            onError?.invoke("靜默丟棄：結構或欄位異常卡片")
+            return
+        }
+
         // 1. 本地 JSON 序列化與在地資料庫實體寫入
         LocalCardDatabase.saveCard(card)
 
@@ -215,6 +229,12 @@ object BaichuanRepository {
         } else null
         
         val validCards = sourcePool.filter { card ->
+            // 專案核心架構防線 - 1. 拉取攔截 (Blocklist Enforcement)
+            if (BlocklistManager.isPullBlocked(card.publisher_device_id, card.card_id)) return@filter false
+
+            // 專案核心架構防線 - 2. 異常靜默丟棄 (Payload Validation & Cleanup)
+            if (!card.isValid()) return@filter false
+
             // TTL 檢查 (支援動態 ttl_hours)
             if (card.isExpired()) return@filter false
             
