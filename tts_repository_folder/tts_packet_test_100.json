@@ -1,0 +1,6 @@
+{
+  "packetId": "tts_packet_test_100",
+  "text": "測試每兩分鐘自動推播 TTS 語音封包",
+  "remainingCount": 100,
+  "timestamp": "2026-11-17 02:27:37.720"
+}
