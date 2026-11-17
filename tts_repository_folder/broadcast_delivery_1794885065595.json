@@ -1,8 +1,10 @@
 {
-  "latitude": 25.002506,
-  "longitude": 121.497596,
+  "isArchived": false,
+  "latitude": 0.0,
+  "longitude": 0.0,
   "packetId": "broadcast_delivery_1794885065595",
-  "remainingCount": 10,
-  "text": "中和廣濟宮開彰聖王聖王公守護您",
-  "timestamp": "2026-11-17 11:11:05.600"
+  "radiusKm": 6.0,
+  "remainingCount": 99,
+  "text": "",
+  "timestamp": "2026-11-18 00:56:36.206"
 }
