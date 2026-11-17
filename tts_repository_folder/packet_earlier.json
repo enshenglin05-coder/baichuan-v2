@@ -1,10 +1,10 @@
 {
+  "isArchived": false,
+  "latitude": 0.0,
+  "longitude": 0.0,
   "packetId": "packet_earlier",
-  "text": "時間較早的廣播封包",
-  "remainingCount": 5,
-  "timestamp": "2025-05-17 10:00:00.000",
-  "latitude": 25.005,
-  "longitude": 121.505,
   "radiusKm": 6.0,
-  "isArchived": false
+  "remainingCount": 99,
+  "text": "",
+  "timestamp": "2026-11-17 23:42:38.084"
 }
