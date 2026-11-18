@@ -2,7 +2,7 @@
   "packetId": "tts_packet_test_100",
   "text": "測試每兩分鐘自動推播 TTS 語音封包",
   "remainingCount": 100,
-  "timestamp": "2026-11-18 08:59:36.957",
+  "timestamp": "2026-11-18 09:03:30.180",
   "latitude": 0.0,
   "longitude": 0.0,
   "radiusKm": 6.0,
