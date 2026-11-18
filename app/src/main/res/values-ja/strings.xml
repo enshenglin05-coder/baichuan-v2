@@ -198,4 +198,5 @@
     <string name="lang_ko">한국어</string>
     <string name="lang_vi">Tiếng Việt</string>
     <string name="label_report">通報</string>
+    <string name="protection_banner_title">⚠️ 保護通知：無権限エリアです。クリックや境界を越えた操作は禁止されています</string>
 </resources>

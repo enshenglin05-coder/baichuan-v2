@@ -104,12 +104,18 @@
                 android:visibility="invisible" />
         </LinearLayout>
 
-        <!-- 2. 中間內容區 -->
-        <LinearLayout
+        <!-- 2. 中間內容區 (支援滾動的 NestedScrollView) -->
+        <androidx.core.widget.NestedScrollView
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
-            android:orientation="vertical">
+            android:fillViewport="true"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
 
             <!-- 5 國語言工具箱 (5-Language Toolbox) -->
             <LinearLayout
@@ -224,12 +230,62 @@
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/recyclerViewBlessings"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
+                android:layout_height="wrap_content"
+                android:nestedScrollingEnabled="false"
                 android:paddingHorizontal="24dp"
                 android:paddingVertical="8dp"
                 android:clipToPadding="false"
                 android:scrollbars="none" />
-        </LinearLayout>
+
+            <!-- 底部專屬防護提示橫條與禁止圖示 (放置於滑動區塊最底端作為阻絕邊界) -->
+            <FrameLayout
+                android:id="@+id/layoutProtectionBarrier"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginHorizontal="24dp"
+                android:layout_marginTop="24dp"
+                android:layout_marginBottom="16dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?attr/selectableItemBackground">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:background="@android:color/transparent"
+                    android:paddingHorizontal="20dp"
+                    android:paddingVertical="14dp">
+
+                    <ImageView
+                        android:layout_width="28dp"
+                        android:layout_height="28dp"
+                        android:src="@android:drawable/ic_delete"
+                        app:tint="#FF4444"
+                        android:contentDescription="Prohibited Icon"
+                        android:layout_marginEnd="12dp" />
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/protection_banner_title"
+                        android:textColor="#FF8888"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <androidx.compose.ui.platform.ComposeView
+                    android:id="@+id/borderProtectionBarrier"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:clickable="false"
+                    android:focusable="false" />
+            </FrameLayout>
+
+            </LinearLayout>
+        </androidx.core.widget.NestedScrollView>
 
         <!-- 3. 底部固定控制列 -->
         <LinearLayout

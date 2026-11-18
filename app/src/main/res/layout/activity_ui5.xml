@@ -1,0 +1,457 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/rootUI5Layout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0A0A0A"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <!-- Top Bar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingTop="24dp"
+        android:paddingBottom="16dp">
+
+        <TextView
+            android:id="@+id/btnUI5Back"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:background="@drawable/bg_capsule_button"
+            android:gravity="center"
+            android:paddingHorizontal="16dp"
+            android:text="← 返回"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:clickable="true"
+            android:focusable="true" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="後端控制"
+            android:textColor="#00FFC2"
+            android:textSize="14sp" />
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingVertical="8dp">
+
+            <!-- Title -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="廣播與外送設定"
+                android:textColor="#FFFFFF"
+                android:textSize="22sp"
+                android:textStyle="bold"
+                android:paddingBottom="16dp" />
+
+            <!-- Section 1: Packet Code (7 Digits Number Input) -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="#1A1A1A"
+                android:orientation="vertical"
+                android:padding="16dp"
+                android:layout_marginBottom="12dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="封包代碼 (7位數數字)"
+                    android:textColor="#00FFC2"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:paddingBottom="8dp" />
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:boxBackgroundColor="#222222"
+                    app:boxBackgroundMode="outline"
+                    app:boxStrokeColor="#00FFC2"
+                    android:textColorHint="#888888">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etPacketCode"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="1234567"
+                        android:inputType="number"
+                        android:maxLength="7"
+                        android:textColor="#FFFFFF"
+                        android:textSize="15sp" />
+                </com.google.android.material.textfield.TextInputLayout>
+            </LinearLayout>
+
+            <!-- Section 2: Broadcast Quantity -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="#1A1A1A"
+                android:orientation="vertical"
+                android:padding="16dp"
+                android:layout_marginBottom="12dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="廣播數量"
+                    android:textColor="#00FFC2"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:paddingBottom="8dp" />
+
+                <SeekBar
+                    android:id="@+id/seekBarQuantity"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:max="999"
+                    android:progress="99"
+                    android:thumbTint="#00FFC2"
+                    android:progressTint="#00FFC2" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingTop="4dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="1"
+                        android:textColor="#888888"
+                        android:textSize="12sp" />
+
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
+
+                    <TextView
+                        android:id="@+id/tvQuantityValue"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="目前數量: 100"
+                        android:textColor="#FFCC00"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="1000"
+                        android:textColor="#888888"
+                        android:textSize="12sp" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- Section 3: Location, Error Adjustment & Range -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="#1A1A1A"
+                android:orientation="vertical"
+                android:padding="16dp"
+                android:layout_marginBottom="12dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingBottom="8dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="定位與範圍設定"
+                        android:textColor="#00FFC2"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/switchManualOverride"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="手動覆蓋定位"
+                        android:textColor="#FFFFFF"
+                        android:textSize="12sp"
+                        android:checked="false" />
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="點擊按鈕可自動帶入當前 GPS，經緯度與誤差欄位支援直接手動點擊輸入修正"
+                    android:textColor="#888888"
+                    android:textSize="11sp"
+                    android:paddingBottom="12dp" />
+
+                <!-- GPS Auto Populate Button -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnGetGps"
+                    android:layout_width="match_parent"
+                    android:layout_height="40dp"
+                    android:text="獲取當前 GPS 經緯度"
+                    android:backgroundTint="#333333"
+                    android:textColor="#00FFC2"
+                    android:textSize="12sp"
+                    android:layout_marginBottom="12dp"
+                    app:cornerRadius="20dp" />
+
+                <!-- Lat / Lon / Error Inputs -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="12dp">
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="4dp"
+                        android:hint="緯度"
+                        app:boxBackgroundColor="#222222"
+                        app:boxBackgroundMode="outline"
+                        app:boxStrokeColor="#00FFC2"
+                        android:textColorHint="#888888">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etLatitude"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="25.0330"
+                            android:inputType="numberDecimal|numberSigned"
+                            android:textColor="#FFFFFF"
+                            android:textSize="13sp" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="4dp"
+                        android:layout_marginEnd="4dp"
+                        android:hint="經度"
+                        app:boxBackgroundColor="#222222"
+                        app:boxBackgroundMode="outline"
+                        app:boxStrokeColor="#00FFC2"
+                        android:textColorHint="#888888">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etLongitude"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="121.5654"
+                            android:inputType="numberDecimal|numberSigned"
+                            android:textColor="#FFFFFF"
+                            android:textSize="13sp" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="4dp"
+                        android:hint="誤差(公尺)"
+                        app:boxBackgroundColor="#222222"
+                        app:boxBackgroundMode="outline"
+                        app:boxStrokeColor="#00FFC2"
+                        android:textColorHint="#888888">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etError"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="5"
+                            android:inputType="number"
+                            android:maxLength="4"
+                            android:textColor="#FFFFFF"
+                            android:textSize="13sp" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                </LinearLayout>
+
+                <!-- Delivery Distance (km) -> 3-digit number input -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="外送距離範圍 (公里, 最多3位數)"
+                    android:textColor="#DDDDDD"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:paddingBottom="6dp" />
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:boxBackgroundColor="#222222"
+                    app:boxBackgroundMode="outline"
+                    app:boxStrokeColor="#00FFC2"
+                    android:textColorHint="#888888">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etDistanceRange"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="6"
+                        android:inputType="number"
+                        android:maxLength="3"
+                        android:textColor="#FFFFFF"
+                        android:textSize="15sp" />
+                </com.google.android.material.textfield.TextInputLayout>
+            </LinearLayout>
+
+            <!-- Section 4: Text-to-Speech Content (Cleared default text) -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="#1A1A1A"
+                android:orientation="vertical"
+                android:padding="16dp"
+                android:layout_marginBottom="12dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="語音播報內容 (TTS)"
+                    android:textColor="#00FFC2"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:paddingBottom="4dp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="請自行手動輸入播報訊息："
+                    android:textColor="#DDDDDD"
+                    android:textSize="13sp"
+                    android:paddingBottom="8dp" />
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:boxBackgroundColor="#222222"
+                    app:boxBackgroundMode="outline"
+                    app:boxStrokeColor="#00FFC2"
+                    android:textColorHint="#888888">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etTtsMessage"
+                        android:layout_width="match_parent"
+                        android:layout_height="100dp"
+                        android:gravity="top|start"
+                        android:inputType="textMultiLine"
+                        android:text=""
+                        android:hint="請在此輸入要播報的文字內容..."
+                        android:textColor="#FFFFFF"
+                        android:textSize="14sp" />
+                </com.google.android.material.textfield.TextInputLayout>
+            </LinearLayout>
+
+            <!-- Section 5: Advanced Settings -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="#1A1A1A"
+                android:orientation="vertical"
+                android:padding="16dp"
+                android:layout_marginBottom="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="進階設定與測試"
+                    android:textColor="#00FFC2"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:paddingBottom="12dp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="12dp">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnConfirmSettings"
+                        android:layout_width="0dp"
+                        android:layout_height="48dp"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="6dp"
+                        android:text="確認並儲存設定"
+                        android:backgroundTint="#4285F4"
+                        android:textColor="#FFFFFF"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        app:cornerRadius="24dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnTriggerManually"
+                        android:layout_width="0dp"
+                        android:layout_height="48dp"
+                        android:layout_weight="1"
+                        android:layout_marginStart="6dp"
+                        android:text="手動觸發語音"
+                        android:backgroundTint="#FF8800"
+                        android:textColor="#FFFFFF"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        app:cornerRadius="24dp" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tvConnectionStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="連線狀態：就緒 &amp; 已同步"
+                    android:textColor="#00FFC2"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- Bottom Action Button -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnReleaseBroadcast"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:text="((•)) 釋出廣播與外送"
+        android:backgroundTint="#00FFC2"
+        android:textColor="#000000"
+        android:textSize="15sp"
+        android:textStyle="bold"
+        app:cornerRadius="28dp" />
+
+</LinearLayout>

@@ -49,9 +49,22 @@ object DeityBlessingTTS {
         val lat = userLat ?: GlobalState.globalLatitude ?: LocationFlowManager.currentLocation?.first ?: 0.0
         val lng = userLng ?: GlobalState.globalLongitude ?: LocationFlowManager.currentLocation?.second ?: 0.0
 
-        val payload = HurlungchuangTestManager.checkAndPullPayload(lat, lng)
-        if (!payload.isNullOrBlank()) {
-            ttsManager?.enqueueFifoPayload(payload, utteranceId = "TTS_GEOSPATIAL_PAYLOAD")
+        TtsRepositoryManager.fetchStrictFifoSinglePacket(context, lat, lng, radiusKm = 6.0) { topPacket, _ ->
+            if (topPacket != null) {
+                val card = RequirementCard(
+                    card_id = topPacket.packetId,
+                    description = topPacket.getPureText(),
+                    gps_lat = topPacket.latitude,
+                    gps_lng = topPacket.longitude,
+                    created_at = topPacket.parseTimestampMillis()
+                )
+                enqueueBackendPacketTexts(context, listOf(card))
+            } else {
+                val payload = HurlungchuangTestManager.checkAndPullPayload(lat, lng)
+                if (!payload.isNullOrBlank()) {
+                    ttsManager?.enqueueFifoPayload(payload, utteranceId = "TTS_GEOSPATIAL_PAYLOAD")
+                }
+            }
         }
     }
 

@@ -198,4 +198,5 @@
     <string name="lang_ko">Korean</string>
     <string name="lang_vi">Vietnamese</string>
     <string name="label_report">Report</string>
+    <string name="protection_banner_title">⚠️ Protection Notice: Unauthorized area, clicking and boundary violation prohibited</string>
 </resources>

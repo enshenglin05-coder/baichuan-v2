@@ -388,4 +388,5 @@
     <string name="lang_ko">한국어</string>
     <string name="lang_vi">Tiếng Việt</string>
     <string name="scroll_hint">上下滑動探索卡片</string>
+    <string name="protection_banner_title">⚠️ 防護提示：此區域為非授權區域，禁止點選與越界操作</string>
 </resources>

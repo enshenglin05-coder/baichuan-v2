@@ -1,5 +1,6 @@
 package com.example.myapplication01
 
+import android.util.Log
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -9,9 +10,27 @@ import java.util.concurrent.ConcurrentHashMap
  * 3.其餘合法卡片：正常納入前端渲染與渲染排序。
  */
 object ReligionRepository {
+    private const val TAG = "ReligionRepository"
+    private val ttsPackets = ConcurrentHashMap<String, TtsAuditPacket>()
 
     // 遭檢舉卡片之隔離列管區 (Quarantine Store)
     private val quarantinedReligionCards = ConcurrentHashMap<String, ReligionCard>()
+
+    /**
+     * 儲存並同步 TTS 封包至後端倉庫
+     */
+    fun saveTtsPacket(packet: TtsAuditPacket) {
+        try {
+            Log.d(TAG, "Attempting to save TTS packet for cardId: ${packet.cardId}")
+            ttsPackets[packet.cardId] = packet
+
+            // 模擬寫入後端倉庫行為
+            val json = packet.toJson()
+            Log.i(TAG, "Successfully packed and saved TTS packet: $json")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save TTS packet for cardId: ${packet.cardId}", e)
+        }
+    }
 
     /**
      * 依據語言代碼獲取經核心過濾策略處置後之合法卡片清單 (供前端渲染與渲染排序)

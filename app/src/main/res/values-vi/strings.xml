@@ -228,4 +228,5 @@
     <string name="lang_ko">Tiếng Hàn</string>
     <string name="lang_vi">Tiếng Việt</string>
     <string name="scroll_hint">Vuốt lên/xuống để khám phá thẻ</string>
+    <string name="protection_banner_title">⚠️ Cảnh báo bảo mật: Khu vực không có quyền, cấm nhấp và vượt qua ranh giới</string>
 </resources>

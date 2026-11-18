@@ -65,6 +65,7 @@ class UI1Activity : BaseActivity() {
 
     private lateinit var topBar: View
     private lateinit var bottomBar: View
+    private lateinit var layoutProtectionBarrier: View
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
 
@@ -132,6 +133,19 @@ class UI1Activity : BaseActivity() {
         recyclerViewBlessings = findViewById(R.id.recyclerViewBlessings)
         btnEnterUI2 = findViewById(R.id.btnEnterUI2)
         cbSelectionVerify = findViewById(R.id.cbSelectionVerify)
+        cbSelectionVerify.isClickable = true
+        cbSelectionVerify.isFocusable = true
+        val selectionClickAction = View.OnClickListener {
+            val textToRead = selectedReligionCard?.let { getString(it.descResId) }
+                ?: GlobalState.selectedBlessingText
+                ?: ReligionRepository.getCardsByLanguage(currentLanguageCode).firstOrNull()?.let { getString(it.descResId) }
+                ?: getString(R.string.msg_publish_success_default)
+            playTTS(textToRead)
+            Toast.makeText(this, textToRead, Toast.LENGTH_SHORT).show()
+        }
+        cbSelectionVerify.setOnClickListener(selectionClickAction)
+        (cbSelectionVerify.parent as? View)?.setOnClickListener(selectionClickAction)
+
         switchRainbow = findViewById(R.id.switchRainbow)
         
         btnEnterUI2.isEnabled = false
@@ -144,6 +158,20 @@ class UI1Activity : BaseActivity() {
         
         topBar = findViewById(R.id.topBar)
         bottomBar = findViewById(R.id.bottomBar)
+        layoutProtectionBarrier = findViewById(R.id.layoutProtectionBarrier)
+
+        val borderProtectionBarrier = findViewById<ComposeView>(R.id.borderProtectionBarrier)
+        borderProtectionBarrier.apply {
+            isClickable = false
+            isFocusable = false
+            setContent {
+                RainbowBorderWrapper(
+                    modifier = Modifier.fillMaxSize(),
+                    cornerRadius = 28.dp,
+                    borderWidth = 2.2.dp
+                ) {}
+            }
+        }
 
         recyclerViewBlessings.layoutManager = LinearLayoutManager(this)
         
@@ -259,6 +287,12 @@ class UI1Activity : BaseActivity() {
                 putExtra("SELECTED_CARD_NAME", cardName)
                 putExtra("LANGUAGE_CODE", currentLanguageCode)
             }
+            startActivity(intent)
+        }
+
+        layoutProtectionBarrier.setOnClickListener {
+            Toast.makeText(this, "正在前往核心配置安全防護驗證...", Toast.LENGTH_SHORT).show()
+            val intent = Intent(this, UI5PasswordActivity::class.java)
             startActivity(intent)
         }
     }

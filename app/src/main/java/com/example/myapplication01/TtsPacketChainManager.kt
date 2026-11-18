@@ -27,7 +27,12 @@ object TtsPacketChainManager {
 
     private val mainHandler: Handler? by lazy {
         try {
-            Handler(Looper.getMainLooper())
+            val looper = Looper.getMainLooper()
+            if (looper != null && looper.thread != null) {
+                Handler(looper)
+            } else {
+                null
+            }
         } catch (_: Throwable) {
             null
         }
@@ -116,14 +121,19 @@ object TtsPacketChainManager {
         val lat = GlobalState.globalLatitude ?: HurlungchuangTestManager.TARGET_LATITUDE
         val lng = GlobalState.globalLongitude ?: HurlungchuangTestManager.TARGET_LONGITUDE
         
-        safeLogD("TtsPacketChain", "🌐 正在發起後端連結請求與發回封包 (Lat: $lat, Lng: $lng)...")
+        safeLogD("TtsPacketChain", "🌐 正在發起後端連結請求、全量拉取與 Multi-Packet Geo-matching (Lat: $lat, Lng: $lng)...")
         
         try {
-            // 呼叫 BaichuanApiService 進行背景經緯度封包請求與資料同步
-            BaichuanApiService.fetchNearbyCards(lat, lng, 50.0, emptyList()) { cloudCards ->
-                val jsonCount = cloudCards.size
-                val filenames = cloudCards.map { "${it.card_id}.json" }
-                safeLogD("TtsPacketChain", "✅ [HTTP 成功 - 後端封包回應] 實際取得 JSON 數量: $jsonCount | 檔名列表: $filenames | 解析結果: 成功接收並同步 $jsonCount 筆雲端資料包")
+            TtsRepositoryManager.fetchStrictFifoSinglePacket(null, lat, lng, radiusKm = 6.0) { topPriorityPacket, _ ->
+                if (topPriorityPacket != null) {
+                    val pureText = topPriorityPacket.getPureText()
+                    synchronized(speechQueue) {
+                        if (!speechQueue.contains(pureText)) {
+                            speechQueue.offer(pureText)
+                        }
+                    }
+                    safeLogD("TtsPacketChain", "✅ [Strict FIFO 鎖定成功] 已載入時間戳最優先純文字封包 [${topPriorityPacket.packetId}]: \"$pureText\"")
+                }
             }
         } catch (e: Throwable) {
             safeLogD("TtsPacketChain", "⚠️ 後端連結請求呼叫 (單元測試環境: ${e.message})")

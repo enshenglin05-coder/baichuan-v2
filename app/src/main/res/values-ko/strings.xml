@@ -228,4 +228,5 @@
     <string name="lang_ko">한국어</string>
     <string name="lang_vi">베트남어</string>
     <string name="scroll_hint">위아래로 스와이프하여 카드 탐색</string>
+    <string name="protection_banner_title">⚠️ 보호 알림: 승인되지 않은 구역이며, 클릭 및 경계 초과 작업이 금지됩니다.</string>
 </resources>

@@ -432,6 +432,7 @@ object BaichuanApiService {
                     val timeMs = System.currentTimeMillis() - startTime
                     val logMsg = "❌ [無法接通/連線失敗] 端點: $targetUrl | 耗時: ${timeMs}ms | 原因: ${e.message}"
                     safeLogE("BaichuanAPI_Health", logMsg)
+                    safeLogE("BaichuanTTSLifecycle", "❌ [TTS 遠端拉取失敗] 請求 URL: $targetUrl, 原因: ${e.message}")
                     synchronized(resultsSummary) {
                         resultsSummary.appendLine("• $targetUrl ➔ 連線失敗: ${e.message}")
                         completedCount++
@@ -449,14 +450,17 @@ object BaichuanApiService {
                             successCount++
                             val logMsg = "✅ [接通正常 200 OK] 端點: $targetUrl | 耗時: ${timeMs}ms | HTTP 200"
                             safeLogD("BaichuanAPI_Health", logMsg)
+                            safeLogD("BaichuanTTSLifecycle", "✅ [TTS 遠端讀取正常] 請求 URL: $targetUrl, HTTP 200")
                             resultsSummary.appendLine("• $targetUrl ➔ 正常 200 OK (${timeMs}ms)")
                         } else if (code == 404) {
                             val logMsg = "⚠️ [HTTP 404 找不到資源] 端點: $targetUrl | 耗時: ${timeMs}ms | 404 未找到"
                             safeLogW("BaichuanAPI_Health", logMsg)
+                            safeLogW("BaichuanTTSLifecycle", "⚠️ 【TTS 讀取失敗】 請求 URL: $targetUrl, 原因: HTTP 404 Not Found")
                             resultsSummary.appendLine("• $targetUrl ➔ HTTP 404 Not Found")
                         } else {
                             val logMsg = "⚠️ [HTTP $code 異常] 端點: $targetUrl | 耗時: ${timeMs}ms"
                             safeLogW("BaichuanAPI_Health", logMsg)
+                            safeLogW("BaichuanTTSLifecycle", "⚠️ 【TTS 讀取失敗】 請求 URL: $targetUrl, 原因: HTTP $code")
                             resultsSummary.appendLine("• $targetUrl ➔ HTTP $code")
                         }
                         completedCount++
@@ -552,11 +556,91 @@ object BaichuanApiService {
         onError: ((String) -> Unit)? = null
     ) {
         val cleanCardId = if (cardId.endsWith(".json")) cardId.removeSuffix(".json") else cardId
+        
+        // 1. 本地歸檔
         LocalCardDatabase.archiveCardFile(cleanCardId, appContext)
-        safeLogD("BaichuanGitHubAudit", "⏸️ [暫時切斷 Git 倉庫後端推送] 已略過遠端 GitHub PUT 請求，確保本地播放與歸零邏輯 100% 穩定流暢。")
-        runOnMain {
-            onSuccess?.invoke()
-        }
+        
+        // 2. 構建推送格式：歸零封包
+        val apiUrl = "https://api.github.com/repos/enshenglin05-coder/baichuan-v2/contents/cards/$cleanCardId.json"
+        
+        val payload = mapOf(
+            "card_id" to cleanCardId,
+            "description" to text,
+            "errorCount" to 0,
+            "timestamp" to System.currentTimeMillis()
+        )
+        val jsonBodyStr = gson.toJson(payload)
+        val base64Content = safeBase64Encode(jsonBodyStr.toByteArray(Charsets.UTF_8))
+        val token = try { UserIdentityManager.getAuthToken().ifBlank { GITHUB_TOKEN } } catch (_: Throwable) { GITHUB_TOKEN }
+
+        val commitPayload = mapOf(
+            "message" to "Archive/Zero out card $cleanCardId via Baichuan mobile client",
+            "content" to base64Content,
+            "branch" to "main"
+        )
+        val requestBodyJson = gson.toJson(commitPayload).toRequestBody(JSON_MEDIA_TYPE)
+
+        val request = Request.Builder()
+            .url(apiUrl)
+            .put(requestBodyJson)
+            .addHeader("Authorization", "Bearer $token")
+            .addHeader("Accept", "application/vnd.github+json")
+            .addHeader("Content-Type", "application/json")
+            .addHeader("X-GitHub-Api-Version", "2022-11-28")
+            .build()
+
+        safeLogD("BaichuanGitHubAudit", "🔄 [啟動 Git 歸零回寫] 卡片 ID: $cleanCardId, 端點: $apiUrl")
+
+        httpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                safeLogE("BaichuanGitHubAudit", "❌ [Git 歸零推送網路失敗]: ${e.message}")
+                runOnMain { onError?.invoke(e.message ?: "Network error") }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                val code = response.code
+                val respStr = response.body?.string() ?: ""
+                response.close()
+
+                if (code == 200 || code == 201) {
+                    safeLogD("BaichuanGitHubAudit", "✅ [Git 歸零推送成功] HTTP $code, 卡片已確實封存於雲端 cards/ 資料夾。")
+                    runOnMain { onSuccess?.invoke() }
+                } else if (code == 422) {
+                    safeLogD("BaichuanGitHubAudit", "⚠️ [Git 歸零衝突] 檔案已存在，嘗試取得 SHA 後更新...")
+                    // 這裡呼叫現有的 retry 機制，需要將原類別中的方法封裝為對外可用，或是直接實作補償邏輯
+                    // 為了簡潔，先嘗試透過 fetch 取得 sha 再 PUT
+                    fetchExistingShaAndRetry(jsonBodyStr, token, apiUrl, onSuccess, onError)
+                } else {
+                    safeLogE("BaichuanGitHubAudit", "❌ [Git 歸零推送異常] HTTP $code, 內容: $respStr")
+                    runOnMain { onError?.invoke("HTTP $code: $respStr") }
+                }
+            }
+        })
+    }
+
+    private fun fetchExistingShaAndRetry(jsonBodyStr: String, token: String, apiUrl: String, onSuccess: (() -> Unit)?, onError: ((String) -> Unit)?) {
+        val getRequest = Request.Builder().url(apiUrl).get().addHeader("Authorization", "Bearer $token").build()
+        httpClient.newCall(getRequest).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) { runOnMain { onError?.invoke(e.message ?: "SHA get fail") } }
+            override fun onResponse(call: Call, response: Response) {
+                val sha = try { JsonParser.parseString(response.body?.string()).asJsonObject.get("sha").asString } catch (_: Exception) { "" }
+                response.close()
+                if (sha.isBlank()) { runOnMain { onError?.invoke("SHA not found") }; return }
+
+                val base64Content = safeBase64Encode(jsonBodyStr.toByteArray(Charsets.UTF_8))
+                val commitPayload = mapOf("message" to "Retry Archive/Zero out card", "content" to base64Content, "sha" to sha, "branch" to "main")
+                val putRequest = Request.Builder().url(apiUrl).put(gson.toJson(commitPayload).toRequestBody(JSON_MEDIA_TYPE))
+                    .addHeader("Authorization", "Bearer $token").build()
+                
+                httpClient.newCall(putRequest).enqueue(object : Callback {
+                    override fun onFailure(call: Call, e: IOException) { runOnMain { onError?.invoke("Retry fail") } }
+                    override fun onResponse(call: Call, response: Response) {
+                        if (response.isSuccessful) runOnMain { onSuccess?.invoke() } else runOnMain { onError?.invoke("Retry HTTP ${response.code}") }
+                        response.close()
+                    }
+                })
+            }
+        })
     }
 
     /**
@@ -624,6 +708,9 @@ object BaichuanApiService {
             LocalCardDatabase.saveCard(card, appContext)
         }
 
+        // TTS 寫入/打包 Log
+        safeLogD("BaichuanTTSLifecycle", "📦 [TTS 封包打包] 卡片 ID: $cardId, 內容: ${card.description}, 請求路徑: $fullGithubApiUrl")
+
         // 零阻礙直通：不管遠端成敗，立即在主執行緒完成本地渲染與 TTS 觸發 (相容 JVM 單元測試環境)
         runOnMain {
             try {
@@ -657,6 +744,7 @@ object BaichuanApiService {
         httpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 safeLogE("BaichuanGitHubAudit", "❌ [GitHub API 發布連線失敗]: ${e.message}")
+                safeLogE("BaichuanTTSLifecycle", "❌ [TTS 封包上傳失敗] 原因: ${e.message}")
                 runOnMain { onError(e.message ?: "Network error") }
             }
 
@@ -667,7 +755,7 @@ object BaichuanApiService {
                     response.close()
 
                     safeLogD("BaichuanGitHubAudit", "🌐 [GitHub API 回應狀態] HTTP $code")
-                    safeLogD("BaichuanGitHubAudit", "📦 [GitHub API 完整回應本文]:\n$respStr")
+                    safeLogD("BaichuanTTSLifecycle", "🌐 [TTS 封包上傳結果] HTTP $code, 訊息: $respStr")
 
                     if (code == 200 || code == 201) {
                         try {
@@ -1055,8 +1143,13 @@ object BaichuanApiService {
                     val respBodyStr = try { response.body?.string() ?: "" } catch (_: Exception) { "" }
                     response.close()
 
-                    if (code == 401 || code == 404) {
-                        safeLogW("BaichuanSyncAudit", "⚠️ [端點回應 HTTP $code 靜默略過] ($readUrl) - 401/404 絕不補償預設字串，嘗試下一個端點...")
+                    if (code == 404) {
+                        safeLogW("BaichuanSyncAudit", "⚠️ [端點回應 HTTP 404 靜默略過] ($readUrl) - 該封包已過期或尚未同步，略過並無縫銜接下一筆...")
+                        executeFetchWithFallback(urls, index + 1, lat, lng, radiusKm, categoryCodes, onResult)
+                        return
+                    }
+                    if (code == 401) {
+                        safeLogW("BaichuanSyncAudit", "⚠️ [端點回應 HTTP 401 靜默略過] ($readUrl) - 絕不補償預設字串，嘗試下一個端點...")
                         executeFetchWithFallback(urls, index + 1, lat, lng, radiusKm, categoryCodes, onResult)
                         return
                     }
@@ -1191,10 +1284,6 @@ object BaichuanApiService {
         } catch (e: Exception) {
             safeLogE("BaichuanAPI", "解析雲端 JSON 異常 (容錯丟棄/略過): ${e.message}")
             CardJsonExceptionHandler.reportJsonException("PARSE_ERR", trimmed, e.message ?: "Unknown parse error")
-        }
-
-        return cards
-    }
         }
 
         return cards
@@ -1608,6 +1697,203 @@ object BaichuanApiService {
                     safeLogE("BaichuanAuditRepo", "❌ 遠端推送 audit_blocklist_repo 失敗 HTTP $code: $respStr")
                     runOnMain { onError("HTTP $code: $respStr") }
                 }
+            }
+        })
+    }
+
+    /**
+     * 從遠端 GitHub 倉庫 tts_repository_folder/ 全量拉取所有廣播 JSON 封包清單
+     */
+    fun fetchTtsPacketsFromRemoteHub(onResult: (List<TtsRepositoryManager.TtsPacketRecord>) -> Unit) {
+        val dirUrl = "https://api.github.com/repos/enshenglin05-coder/baichuan-v2/contents/tts_repository_folder"
+        val token = try { UserIdentityManager.getAuthToken().ifBlank { GITHUB_TOKEN } } catch (_: Throwable) { GITHUB_TOKEN }
+
+        val requestBuilder = Request.Builder()
+            .url(dirUrl)
+            .get()
+            .addHeader("Accept", "application/vnd.github+json")
+            .addHeader("X-GitHub-Api-Version", "2022-11-28")
+        if (token.isNotBlank()) {
+            requestBuilder.addHeader("Authorization", "Bearer $token")
+        }
+
+        httpClient.newCall(requestBuilder.build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                safeLogW("BaichuanTtsRepo", "⚠️ [遠端 TTS 倉庫全量拉取失敗]: ${e.message}")
+                runOnMain { onResult(emptyList()) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val code = response.code
+                    val respStr = response.body?.string() ?: ""
+                    response.close()
+
+                    if (code != 200) {
+                        safeLogW("BaichuanTtsRepo", "⚠️ [遠端 TTS 倉庫全量拉取 HTTP 狀態] HTTP $code")
+                        runOnMain { onResult(emptyList()) }
+                        return
+                    }
+
+                    val jsonElement = JsonParser.parseString(respStr)
+                    if (!jsonElement.isJsonArray) {
+                        runOnMain { onResult(emptyList()) }
+                        return
+                    }
+
+                    val jsonArray = jsonElement.asJsonArray
+                    val packetRecords = mutableListOf<TtsRepositoryManager.TtsPacketRecord>()
+
+                    for (elem in jsonArray) {
+                        if (elem != null && elem.isJsonObject) {
+                            val obj = elem.asJsonObject
+                            val type = obj.get("type")?.asString ?: ""
+                            val name = obj.get("name")?.asString ?: ""
+                            if (type == "file" && name.endsWith(".json") && name != "config_head.json") {
+                                val downloadUrl = obj.get("download_url")?.asString ?: continue
+                                try {
+                                    val fileReq = Request.Builder().url(downloadUrl).get().build()
+                                    val fileResp = httpClient.newCall(fileReq).execute()
+                                    if (fileResp.isSuccessful) {
+                                        val fileBody = fileResp.body?.string() ?: ""
+                                        fileResp.close()
+                                        val record = gson.fromJson(fileBody, TtsRepositoryManager.TtsPacketRecord::class.java)
+                                        if (record != null && record.packetId.isNotBlank()) {
+                                            packetRecords.add(record)
+                                        }
+                                    } else {
+                                        fileResp.close()
+                                    }
+                                } catch (e: Exception) {
+                                    safeLogE("BaichuanTtsRepo", "❌ [解析遠端 TTS 封包失敗]: $name - ${e.message}")
+                                }
+                            }
+                        }
+                    }
+
+                    safeLogD("BaichuanTtsRepo", "✅ [遠端 TTS 倉庫全量拉取成功] 成功取得 ${packetRecords.size} 筆遠端 JSON 封包")
+                    runOnMain { onResult(packetRecords) }
+                } catch (e: Exception) {
+                    safeLogE("BaichuanTtsRepo", "❌ [遠端 TTS 倉庫全量拉取例外]: ${e.message}")
+                    runOnMain { onResult(emptyList()) }
+                }
+            }
+        })
+    }
+
+    /**
+     * 將歸零/封存之 TTS 封包非同步同步至遠端 GitHub 倉庫 tts_repository_folder/archived/ 目錄
+     */
+    fun publishZeroedTtsPacketToArchivedHub(packetId: String, jsonBodyStr: String, onSuccess: () -> Unit = {}, onError: (String) -> Unit = {}) {
+        val cleanId = if (packetId.endsWith(".json")) packetId.removeSuffix(".json") else packetId
+        val apiUrl = "https://api.github.com/repos/enshenglin05-coder/baichuan-v2/contents/tts_repository_folder/archived/$cleanId.json"
+        val token = try { UserIdentityManager.getAuthToken().ifBlank { GITHUB_TOKEN } } catch (_: Throwable) { GITHUB_TOKEN }
+
+        val base64Content = safeBase64Encode(jsonBodyStr.toByteArray(Charsets.UTF_8))
+        val commitPayload = mapOf(
+            "message" to "Archive zeroed TTS packet $cleanId via mobile client",
+            "content" to base64Content,
+            "branch" to "main"
+        )
+        val requestBodyJson = gson.toJson(commitPayload).toRequestBody(JSON_MEDIA_TYPE)
+
+        val request = Request.Builder()
+            .url(apiUrl)
+            .put(requestBodyJson)
+            .addHeader("Authorization", "Bearer $token")
+            .addHeader("Accept", "application/vnd.github+json")
+            .addHeader("Content-Type", "application/json")
+            .addHeader("X-GitHub-Api-Version", "2022-11-28")
+            .build()
+
+        httpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                safeLogE("BaichuanTtsRepo", "❌ 遠端推送歸檔 tts_repository_folder/archived 失敗: ${e.message}")
+                runOnMain { onError(e.message ?: "Network error") }
+            }
+            override fun onResponse(call: Call, response: Response) {
+                val code = response.code
+                response.close()
+                if (code == 200 || code == 201) {
+                    safeLogD("BaichuanTtsRepo", "✅ [背景歸檔成功] 已寫入遠端 tts_repository_folder/archived/$cleanId.json")
+                    runOnMain { onSuccess() }
+                } else if (code == 422) {
+                    fetchExistingShaAndRetryGeneric(jsonBodyStr, token, apiUrl, onSuccess, onError)
+                } else {
+                    runOnMain { onError("HTTP $code") }
+                }
+            }
+        })
+    }
+
+    /**
+     * 當 TTS 封包倒數至零時：
+     * 1. 寫入遠端歸檔倉庫 tts_repository_folder/archived/$cleanId.json
+     * 2. 刪除遠端活躍倉庫 tts_repository_folder/$cleanId.json，確保活躍倉庫無留空值/歸零值。
+     */
+    fun deleteActiveTtsPacketAndPushToArchive(packetId: String, zeroedJsonBodyStr: String, onSuccess: () -> Unit = {}, onError: (String) -> Unit = {}) {
+        val cleanId = if (packetId.endsWith(".json")) packetId.removeSuffix(".json") else packetId
+        val activeUrl = "https://api.github.com/repos/enshenglin05-coder/baichuan-v2/contents/tts_repository_folder/$cleanId.json"
+
+        publishZeroedTtsPacketToArchivedHub(cleanId, zeroedJsonBodyStr, onSuccess = {
+            safeLogD("BaichuanTtsRepo", "✅ [遠端歸檔成功] 封包 [$cleanId] 已成功推回遠端歸檔倉庫 (/archived/)")
+            deleteRemoteTtsActiveFile(cleanId, activeUrl)
+            onSuccess()
+        }, onError = { err ->
+            safeLogW("BaichuanTtsRepo", "⚠️ [遠端歸檔提醒] 封包 [$cleanId] 推回歸檔區回應: $err")
+            deleteRemoteTtsActiveFile(cleanId, activeUrl)
+            onError(err)
+        })
+    }
+
+    private fun deleteRemoteTtsActiveFile(packetId: String, activeUrl: String) {
+        val token = try { UserIdentityManager.getAuthToken().ifBlank { GITHUB_TOKEN } } catch (_: Throwable) { GITHUB_TOKEN }
+        val getRequest = Request.Builder()
+            .url(activeUrl)
+            .get()
+            .addHeader("Authorization", "Bearer $token")
+            .addHeader("Accept", "application/vnd.github+json")
+            .addHeader("X-GitHub-Api-Version", "2022-11-28")
+            .build()
+
+        httpClient.newCall(getRequest).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                safeLogW("BaichuanTtsRepo", "⚠️ [活躍檔案刪除] 取得 SHA 失敗: ${e.message}")
+            }
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val respStr = response.body?.string() ?: ""
+                    response.close()
+                    if (response.code == 200) {
+                        val obj = JsonParser.parseString(respStr).asJsonObject
+                        val sha = obj.get("sha")?.asString ?: ""
+                        if (sha.isNotBlank()) {
+                            val deletePayload = mapOf(
+                                "message" to "Move zeroed packet $packetId from active folder to archived folder",
+                                "sha" to sha,
+                                "branch" to "main"
+                            )
+                            val requestBodyJson = gson.toJson(deletePayload).toRequestBody(JSON_MEDIA_TYPE)
+                            val deleteRequest = Request.Builder()
+                                .url(activeUrl)
+                                .delete(requestBodyJson)
+                                .addHeader("Authorization", "Bearer $token")
+                                .addHeader("Accept", "application/vnd.github+json")
+                                .addHeader("X-GitHub-Api-Version", "2022-11-28")
+                                .build()
+                            httpClient.newCall(deleteRequest).enqueue(object : Callback {
+                                override fun onFailure(call: Call, e: IOException) {}
+                                override fun onResponse(call: Call, response: Response) {
+                                    val code = response.code
+                                    response.close()
+                                    if (code == 200 || code == 202) {
+                                        safeLogD("BaichuanTtsRepo", "🗑️ [活躍倉庫清理成功] 封包 [$packetId] 已成功從遠端 tts_repository_folder/ 活躍區移出")
+                                    }
+                                }
+                            })
+                        }
+                    }
+                } catch (_: Exception) {}
             }
         })
     }

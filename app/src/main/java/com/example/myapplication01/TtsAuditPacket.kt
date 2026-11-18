@@ -23,32 +23,8 @@ data class TtsAuditPacket(
     val transmissionLogs: MutableList<TransmissionLogEntry> = mutableListOf(),
     var isCompleted: Boolean = false
 ) {
-    /**
-     * 當卡片被觸動時執行扣次與歷程記錄
-     */
-    fun triggerTouch(lat: Double, lon: Double, content: String): Boolean {
-        if (remainingQuota <= 0) {
-            isCompleted = true
-            return false
-        }
 
-        val currentSeq = totalQuota - remainingQuota + 1
-        remainingQuota--
 
-        val logEntry = TransmissionLogEntry(
-            sequence = currentSeq,
-            timestamp = System.currentTimeMillis(),
-            latitude = lat,
-            longitude = lon,
-            speechContent = content
-        )
-        transmissionLogs.add(logEntry)
-
-        if (remainingQuota <= 0) {
-            isCompleted = true
-        }
-        return true
-    }
 
     /**
      * 轉為 JSON 封包格式，直接寫入遠端倉庫的 TTS 資料夾中

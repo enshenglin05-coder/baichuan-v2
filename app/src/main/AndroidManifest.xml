@@ -71,6 +71,14 @@
         <activity
             android:name=".AiModalityActivity"
             android:exported="false" />
+        <activity
+            android:name=".UI5PasswordActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".UI5Activity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
     </application>
 
 </manifest>

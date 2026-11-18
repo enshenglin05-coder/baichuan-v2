@@ -57,6 +57,10 @@ android {
         checkReleaseBuilds = false
         abortOnError = false
     }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {
@@ -88,6 +92,7 @@ dependencies {
     implementation("com.squareup.retrofit2:converter-gson:2.11.0")
     
     testImplementation(libs.junit)
+    testImplementation("org.json:json:20240303")
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
 }

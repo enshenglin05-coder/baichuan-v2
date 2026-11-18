@@ -259,7 +259,10 @@ object TtsAdManager {
                     totalCount = updatedAd.totalCount
                 )
 
-                safeLogD("TtsAdManager", "📦 [歸零自動搬運/歸位封存/強制中斷續撥] 廣告 [$adId] 播放次數已歸零！已清空佇列並寫回遠端 GitHub (ArchiveID: ${archiveRecord.archiveId})")
+                // 5. 觸發專屬 TTS 倉庫背景非同步歸檔 (Move to /tts_repository_folder/archived/)
+                TtsRepositoryManager.zeroOutAndArchiveAsync(adId, ctx)
+
+                safeLogD("TtsAdManager", "📦 [單筆播畢歸零/背景歸檔/歸位封存] 廣告 [$adId] 播放次數已歸零！已推回歸檔區並寫回遠端 GitHub (ArchiveID: ${archiveRecord.archiveId})")
             } else {
                 adList[index] = updatedAd
                 LocalTtsAdDatabase.saveAds(adList, ctx)
