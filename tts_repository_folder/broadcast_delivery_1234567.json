@@ -1,10 +1,10 @@
 {
   "isArchived": false,
-  "latitude": 25.033,
-  "longitude": 121.5654,
+  "latitude": 0.0,
+  "longitude": 0.0,
   "packetId": "broadcast_delivery_1234567",
-  "radiusKm": 1.0,
-  "remainingCount": 100,
-  "text": "南山烘盧地土地公福氣送給您",
-  "timestamp": "2026-11-18 13:43:56.651"
+  "radiusKm": 6.0,
+  "remainingCount": 99,
+  "text": "",
+  "timestamp": "2026-11-18 14:00:11.807"
 }
