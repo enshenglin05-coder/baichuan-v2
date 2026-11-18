@@ -1,0 +1,10 @@
+{
+  "packetId": "packet_countdown_audit_test",
+  "text": "倒數扣減與歷程戳記測試封包",
+  "remainingCount": 1,
+  "timestamp": "2026-11-19 00:18:56.359",
+  "latitude": 25.03,
+  "longitude": 121.56,
+  "radiusKm": 6.0,
+  "isArchived": false
+}
