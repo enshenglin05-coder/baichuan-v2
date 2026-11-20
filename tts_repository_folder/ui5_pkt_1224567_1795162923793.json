@@ -1,0 +1,19 @@
+{
+  "formulaIdentifier": "HAVERSINE_SPHERICAL",
+  "formulaVersion": "1.0.0",
+  "geofenceParams": {
+    "centerLat": 25.0024896,
+    "centerLng": 121.4976399,
+    "radiusKm": 2.0
+  },
+  "geofenceType": "RADIAL_CIRCLE",
+  "isArchived": false,
+  "latitude": 25.0024896,
+  "longitude": 121.4976399,
+  "packetCode": "1224567",
+  "packetId": "ui5_pkt_1224567_1795162923793",
+  "radiusKm": 2.0,
+  "remainingCount": 100,
+  "text": "中和廣濟宮開彰聖王聖王公守護您",
+  "timestamp": "2026-11-20 16:22:03.793"
+}
