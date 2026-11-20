@@ -1,19 +1,11 @@
 {
   "formulaIdentifier": "HAVERSINE_SPHERICAL",
   "formulaVersion": "1.0.0",
-  "geofenceParams": {
-    "centerLat": 25.0024808,
-    "centerLng": 121.4976599,
-    "radiusKm": 2.0
-  },
   "geofenceType": "RADIAL_CIRCLE",
   "isArchived": false,
-  "latitude": 25.0024808,
-  "longitude": 121.4976599,
-  "packetCode": "1234569",
+  "packetCode": "",
   "packetId": "ui5_pkt_1234569_1795160521285",
-  "radiusKm": 2.0,
-  "remainingCount": 98,
-  "text": "測試六",
-  "timestamp": "2026-11-20 15:43:08.478"
+  "remainingCount": 99,
+  "text": "",
+  "timestamp": "2026-11-20 15:45:15.378"
 }
