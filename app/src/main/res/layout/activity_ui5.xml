@@ -202,10 +202,10 @@
                         android:id="@+id/switchManualOverride"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="手動覆蓋定位"
+                        android:text="獲取當前位置"
                         android:textColor="#FFFFFF"
                         android:textSize="12sp"
-                        android:checked="false" />
+                        android:checked="true" />
                 </LinearLayout>
 
                 <TextView
@@ -228,7 +228,7 @@
                     android:layout_marginBottom="12dp"
                     app:cornerRadius="20dp" />
 
-                <!-- Lat / Lon / Error Inputs -->
+                <!-- Lat / Lon Inputs -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -239,7 +239,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:layout_marginEnd="4dp"
+                        android:layout_marginEnd="6dp"
                         android:hint="緯度"
                         app:boxBackgroundColor="#222222"
                         app:boxBackgroundMode="outline"
@@ -260,8 +260,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:layout_marginStart="4dp"
-                        android:layout_marginEnd="4dp"
+                        android:layout_marginStart="6dp"
                         android:hint="經度"
                         app:boxBackgroundColor="#222222"
                         app:boxBackgroundMode="outline"
@@ -274,28 +273,6 @@
                             android:layout_height="wrap_content"
                             android:text="121.5654"
                             android:inputType="numberDecimal|numberSigned"
-                            android:textColor="#FFFFFF"
-                            android:textSize="13sp" />
-                    </com.google.android.material.textfield.TextInputLayout>
-
-                    <com.google.android.material.textfield.TextInputLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginStart="4dp"
-                        android:hint="誤差(公尺)"
-                        app:boxBackgroundColor="#222222"
-                        app:boxBackgroundMode="outline"
-                        app:boxStrokeColor="#00FFC2"
-                        android:textColorHint="#888888">
-
-                        <com.google.android.material.textfield.TextInputEditText
-                            android:id="@+id/etError"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="5"
-                            android:inputType="number"
-                            android:maxLength="4"
                             android:textColor="#FFFFFF"
                             android:textSize="13sp" />
                     </com.google.android.material.textfield.TextInputLayout>
@@ -378,79 +355,18 @@
                 </com.google.android.material.textfield.TextInputLayout>
             </LinearLayout>
 
-            <!-- Section 5: Advanced Settings -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:background="#1A1A1A"
-                android:orientation="vertical"
-                android:padding="16dp"
-                android:layout_marginBottom="16dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="進階設定與測試"
-                    android:textColor="#00FFC2"
-                    android:textSize="14sp"
-                    android:textStyle="bold"
-                    android:paddingBottom="12dp" />
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginBottom="12dp">
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnConfirmSettings"
-                        android:layout_width="0dp"
-                        android:layout_height="48dp"
-                        android:layout_weight="1"
-                        android:layout_marginEnd="6dp"
-                        android:text="確認並儲存設定"
-                        android:backgroundTint="#4285F4"
-                        android:textColor="#FFFFFF"
-                        android:textSize="13sp"
-                        android:textStyle="bold"
-                        app:cornerRadius="24dp" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnTriggerManually"
-                        android:layout_width="0dp"
-                        android:layout_height="48dp"
-                        android:layout_weight="1"
-                        android:layout_marginStart="6dp"
-                        android:text="手動觸發語音"
-                        android:backgroundTint="#FF8800"
-                        android:textColor="#FFFFFF"
-                        android:textSize="13sp"
-                        android:textStyle="bold"
-                        app:cornerRadius="24dp" />
-                </LinearLayout>
-
-                <TextView
-                    android:id="@+id/tvConnectionStatus"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="連線狀態：就緒 &amp; 已同步"
-                    android:textColor="#00FFC2"
-                    android:textSize="12sp" />
-            </LinearLayout>
-
         </LinearLayout>
     </ScrollView>
 
-    <!-- Bottom Action Button -->
+    <!-- Bottom Action Button (唯一「確認送出」按鈕) -->
     <com.google.android.material.button.MaterialButton
-        android:id="@+id/btnReleaseBroadcast"
+        android:id="@+id/btnConfirmSubmit"
         android:layout_width="match_parent"
         android:layout_height="56dp"
-        android:text="((•)) 釋出廣播與外送"
+        android:text="確認送出"
         android:backgroundTint="#00FFC2"
         android:textColor="#000000"
-        android:textSize="15sp"
+        android:textSize="16sp"
         android:textStyle="bold"
         app:cornerRadius="28dp" />
 

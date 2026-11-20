@@ -1321,8 +1321,15 @@ object BaichuanApiService {
         })
     }
 
+    private fun purgeLocalCardAllData(cardId: String) {
+        LocalCardDatabase.deleteCard(cardId, appContext)
+        LocalCardDatabase.deleteArchivedCard(cardId, appContext)
+        LocalTtsAdDatabase.deleteRecycledRecord(cardId, appContext)
+        TtsRepositoryManager.deleteTtsPacket(cardId, appContext)
+    }
+
     /**
-     * 刪除卡片 (同步從真實雲端資料庫中抹除，帶有 SHA 與授權標頭)
+     * 刪除卡片 (同步從真實雲端資料庫中抹除，帶有 SHA 與授權標頭，徹底清理本地副本)
      */
     fun deleteCard(card: RequirementCard, onSuccess: () -> Unit, onError: (String) -> Unit) {
         val cardId = card.card_id
@@ -1330,6 +1337,8 @@ object BaichuanApiService {
             runOnMain { onSuccess() }
             return
         }
+
+        purgeLocalCardAllData(cardId)
 
         val cleanCardId = if (cardId.endsWith(".json")) cardId.removeSuffix(".json") else cardId
         val fullGithubApiUrl = "https://api.github.com/repos/enshenglin05-coder/baichuan-v2/contents/cards/$cleanCardId.json"
@@ -1349,7 +1358,7 @@ object BaichuanApiService {
         httpClient.newCall(getRequest).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 safeLogW("BaichuanGitHubAudit", "⚠️ [GitHub API 刪除] GET SHA 失敗: ${e.message}，嘗試直接執行遠端與本地刪除")
-                LocalCardDatabase.deleteCard(cardId, appContext)
+                purgeLocalCardAllData(cardId)
                 executeRemoteDeleteWithoutSha(fullGithubApiUrl, cleanCardId, token, cardId, onSuccess)
             }
 
@@ -1366,16 +1375,16 @@ object BaichuanApiService {
                         executeRemoteDeleteWithSha(fullGithubApiUrl, cleanCardId, sha, token, cardId, onSuccess)
                     } else if (code == 404) {
                         safeLogW("BaichuanGitHubAudit", "⚠️ [GitHub API 刪除] 遠端檔案已不存在 (404)，直接完成本地清除")
-                        LocalCardDatabase.deleteCard(cardId, appContext)
+                        purgeLocalCardAllData(cardId)
                         runOnMain { onSuccess() }
                     } else {
                         safeLogW("BaichuanGitHubAudit", "⚠️ [GitHub API 刪除] GET SHA 回應 HTTP $code，嘗試直接刪除")
-                        LocalCardDatabase.deleteCard(cardId, appContext)
+                        purgeLocalCardAllData(cardId)
                         executeRemoteDeleteWithoutSha(fullGithubApiUrl, cleanCardId, token, cardId, onSuccess)
                     }
                 } catch (e: Exception) {
                     safeLogE("BaichuanGitHubAudit", "❌ 解析檔案 SHA 異常: ${e.message}")
-                    LocalCardDatabase.deleteCard(cardId, appContext)
+                    purgeLocalCardAllData(cardId)
                     executeRemoteDeleteWithoutSha(fullGithubApiUrl, cleanCardId, token, cardId, onSuccess)
                 }
             }
@@ -1411,7 +1420,7 @@ object BaichuanApiService {
         httpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 safeLogE("BaichuanGitHubAudit", "❌ [GitHub API 刪除連線失敗]: ${e.message}")
-                LocalCardDatabase.deleteCard(cardId, appContext)
+                purgeLocalCardAllData(cardId)
                 runOnMain { onSuccess() }
             }
 
@@ -1421,7 +1430,7 @@ object BaichuanApiService {
                 response.close()
 
                 safeLogD("BaichuanGitHubAudit", "🌐 [GitHub API 刪除回應] HTTP $code, Response: $respStr")
-                LocalCardDatabase.deleteCard(cardId, appContext)
+                purgeLocalCardAllData(cardId)
 
                 runOnMain { onSuccess() }
             }
@@ -1452,12 +1461,12 @@ object BaichuanApiService {
 
         httpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                LocalCardDatabase.deleteCard(cardId, appContext)
+                purgeLocalCardAllData(cardId)
                 runOnMain { onSuccess() }
             }
             override fun onResponse(call: Call, response: Response) {
                 response.close()
-                LocalCardDatabase.deleteCard(cardId, appContext)
+                purgeLocalCardAllData(cardId)
                 runOnMain { onSuccess() }
             }
         })
@@ -1757,9 +1766,11 @@ object BaichuanApiService {
                                     if (fileResp.isSuccessful) {
                                         val fileBody = fileResp.body?.string() ?: ""
                                         fileResp.close()
-                                        val record = gson.fromJson(fileBody, TtsRepositoryManager.TtsPacketRecord::class.java)
-                                        if (record != null && record.packetId.isNotBlank()) {
+                                        val record = TtsRepositoryManager.parseTtsPacketFromJson(fileBody, name.removeSuffix(".json"))
+                                        if (record != null && record.packetId.isNotBlank() && record.remainingCount > 0 && !record.isArchived) {
                                             packetRecords.add(record)
+                                        } else {
+                                            TtsRepositoryManager.deleteTtsPacket(name.removeSuffix(".json"), appContext)
                                         }
                                     } else {
                                         fileResp.close()
@@ -1786,6 +1797,8 @@ object BaichuanApiService {
      */
     fun publishZeroedTtsPacketToArchivedHub(packetId: String, jsonBodyStr: String, onSuccess: () -> Unit = {}, onError: (String) -> Unit = {}) {
         val cleanId = if (packetId.endsWith(".json")) packetId.removeSuffix(".json") else packetId
+        tracePacketSourceAndLog("推送歸檔 TTS 封包 (contents/tts_repository_folder/archived/$cleanId.json)", cleanId)
+
         val apiUrl = "https://api.github.com/repos/enshenglin05-coder/baichuan-v2/contents/tts_repository_folder/archived/$cleanId.json"
         val token = try { UserIdentityManager.getAuthToken().ifBlank { GITHUB_TOKEN } } catch (_: Throwable) { GITHUB_TOKEN }
 
@@ -1898,11 +1911,35 @@ object BaichuanApiService {
         })
     }
 
+    private fun tracePacketSourceAndLog(actionDescription: String, packetId: String) {
+        try {
+            val sourceTrace = Thread.currentThread().stackTrace
+            var triggerSource = "Unknown Source"
+            val sb = StringBuilder()
+            for (element in sourceTrace) {
+                val className = element.className
+                if (!className.startsWith("java.lang") && !className.startsWith("dalvik") && !className.contains("Thread")) {
+                    sb.append("   -> File: ${element.fileName}, Method: ${element.methodName}, Line: ${element.lineNumber}\n")
+                    if (triggerSource == "Unknown Source" && !className.contains("BaichuanApiService")) {
+                        triggerSource = "File: ${element.fileName}, Method: ${element.methodName}, Line: ${element.lineNumber}"
+                    }
+                }
+            }
+            android.util.Log.d("PacketSourceTracker", "=== 攔截到 GitHub API (PUT) $actionDescription: packetId=$packetId ===")
+            android.util.Log.d("PacketSourceTracker", "📍 觸發寫入的原始碼位置 -> $triggerSource")
+            android.util.Log.d("PacketSourceTracker", "📜 完整呼叫堆疊 (Stack Trace):\n$sb")
+        } catch (_: Throwable) {
+            // JVM fallback
+        }
+    }
+
     /**
      * 真實寫入遠端 GitHub 倉庫的 tts_repository_folder/ 資料夾 (DTS JSON 封包格式)
      */
     fun publishTtsPacketToHub(packetId: String, jsonBodyStr: String, onSuccess: () -> Unit = {}, onError: (String) -> Unit = {}) {
         val cleanId = if (packetId.endsWith(".json")) packetId.removeSuffix(".json") else packetId
+        tracePacketSourceAndLog("推送活躍 TTS 封包 (contents/tts_repository_folder/$cleanId.json)", cleanId)
+
         val apiUrl = "https://api.github.com/repos/enshenglin05-coder/baichuan-v2/contents/tts_repository_folder/$cleanId.json"
         
         val base64Content = safeBase64Encode(jsonBodyStr.toByteArray(Charsets.UTF_8))

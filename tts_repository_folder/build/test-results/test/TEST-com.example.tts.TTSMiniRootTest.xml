@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.example.tts.TTSMiniRootTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-11-19T18:54:06.589Z" hostname="DESKTOP-H6T82KU" time="0.152">
+  <properties/>
+  <testcase name="testTTSReaderPermittedAccess" classname="com.example.tts.TTSMiniRootTest" time="0.101"/>
+  <testcase name="testTTSRuntimeInitialization" classname="com.example.tts.TTSMiniRootTest" time="0.015"/>
+  <testcase name="testCommandDispatcherRejectsUnknownCommands" classname="com.example.tts.TTSMiniRootTest" time="0.007"/>
+  <testcase name="testRootResolverInitializationAndPathValidation" classname="com.example.tts.TTSMiniRootTest" time="0.015"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

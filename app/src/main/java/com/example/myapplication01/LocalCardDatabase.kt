@@ -220,41 +220,18 @@ object LocalCardDatabase {
     }
 
     /**
-     * 歸零自動搬運（屍體歸位）：
-     * 當卡片播放次數扣減至 0 歸零時，實體將卡片檔案從主資料夾 (`local_cards/`) 搬移/搬運至已封存/回收倉庫 (`archived_cards/`)
+     * 歸零拋棄處置：
+     * 當卡片播放次數扣減至 0 歸零時，直接拋棄實體卡片檔案，不做儲存動作，避免幹擾。
      */
     fun archiveCardFile(cardId: String, context: Context? = null): File? {
-        return try {
-            val mainDirectory = getDbDirectory(context)
-            val sourceFile = File(mainDirectory, "$cardId.json")
-            if (!sourceFile.exists()) {
-                safeLogD("LocalCardDB", "⚠️ 找不到主資料夾卡片檔案 [$cardId.json]，可能已移走或不存在")
-                return null
-            }
-
-            val baseDir = mainDirectory.parentFile ?: context?.filesDir
-            val archiveDirectory = File(baseDir, "archived_cards")
-            if (!archiveDirectory.exists()) {
-                archiveDirectory.mkdirs()
-            }
-
-            val destFile = File(archiveDirectory, "$cardId.json")
-            val moved = sourceFile.renameTo(destFile)
-            if (!moved) {
-                // 若跨檔案系統重命名失敗，則採用複製後刪除
-                destFile.writeBytes(sourceFile.readBytes())
-                sourceFile.delete()
-            }
-
-            safeLogD(
-                "LocalCardDB",
-                "📦 [歸零自動搬運/屍體歸位] 成功將卡片 [$cardId] 實體檔案從 local_cards/ 搬移至專屬回收倉庫: ${destFile.absolutePath}"
-            )
-            destFile
+        try {
+            deleteCard(cardId, context)
+            deleteArchivedCard(cardId, context)
+            safeLogD("LocalCardDB", "🗑️ [歸零拋棄] 卡片 [$cardId] 實體檔案已直接刪除拋棄，不做儲存與歸檔動作。")
         } catch (e: Exception) {
-            safeLogE("LocalCardDB", "❌ 搬移歸零卡片至回收倉庫失敗 [$cardId]: ${e.message}", e)
-            null
+            safeLogE("LocalCardDB", "❌ 刪除歸零卡片檔案失敗 [$cardId]: ${e.message}")
         }
+        return null
     }
 
     /**

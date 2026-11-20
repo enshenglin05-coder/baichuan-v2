@@ -65,15 +65,16 @@ object LocalTtsAdDatabase {
     }
 
     /**
-     * 儲存 TTS 廣告播放資料庫
+     * 儲存 TTS 廣告播放資料庫 (僅保存剩餘次數 > 0 之有效項目)
      */
     fun saveAds(ads: List<TTSAdModel>, context: Context? = null) {
         try {
             val dir = getDirectory(context)
             val file = File(dir, TTS_ADS_FILE)
-            val json = gson.toJson(ads)
+            val activeAds = ads.filter { it.remainingCount > 0 && it.status == TTSAdStatus.ACTIVE }
+            val json = gson.toJson(activeAds)
             file.writeText(json, Charsets.UTF_8)
-            safeLogD("LocalTtsAdDB", "💾 成功儲存 ${ads.size} 筆 TTS 播放器廣告至本地資料庫")
+            safeLogD("LocalTtsAdDB", "💾 成功儲存 ${activeAds.size} 筆有效 TTS 播放器廣告至本地資料庫 (自動過濾歸零廢棄項目)")
         } catch (e: Exception) {
             safeLogE("LocalTtsAdDB", "❌ 儲存 TTS 廣告資料庫失敗: ${e.message}")
         }
@@ -89,7 +90,8 @@ object LocalTtsAdDatabase {
             if (!file.exists()) return emptyList()
             val json = file.readText(Charsets.UTF_8)
             val type = object : TypeToken<List<TTSAdModel>>() {}.type
-            return gson.fromJson(json, type) ?: emptyList()
+            val list: List<TTSAdModel> = gson.fromJson(json, type) ?: emptyList()
+            return list.filter { it.remainingCount > 0 && it.status == TTSAdStatus.ACTIVE }
         } catch (e: Exception) {
             safeLogE("LocalTtsAdDB", "❌ 載入 TTS 廣告資料庫失敗: ${e.message}")
             return emptyList()
@@ -112,33 +114,17 @@ object LocalTtsAdDatabase {
     }
 
     /**
-     * 歸零自動搬運與屍體歸位：
-     * 將已歸零廣告寫入專屬已封存/回收倉庫 (`archived_warehouse/`)
+     * 次數歸零直接拋棄，不做本地儲存動作，避免幹擾
      */
     fun archiveZeroAd(ad: TTSAdModel, record: RecycledAdRecord, context: Context? = null) {
         try {
-            val dir = getDirectory(context)
-            val archiveWarehouse = File(dir, "archived_warehouse")
-            if (!archiveWarehouse.exists()) {
-                archiveWarehouse.mkdirs()
-            }
-            val adFile = File(archiveWarehouse, "${ad.id}.json")
-            val json = gson.toJson(ad)
-            adFile.writeText(json, Charsets.UTF_8)
-
-            // 同步更新回收紀錄清單
-            val currentRecords = loadRecycledRecords(context).toMutableList()
-            if (currentRecords.none { it.archiveId == record.archiveId }) {
-                currentRecords.add(record)
-                saveRecycledRecords(currentRecords, context)
-            }
-
+            deleteRecycledRecord(ad.id, context)
             safeLogD(
                 "LocalTtsAdDB",
-                "📦 [屍體歸位] 廣告 [${ad.id}] 次數歸零！實體檔案已成功推送至專屬回收倉庫: ${adFile.absolutePath}"
+                "🗑️ [歸零拋棄] 廣告 [${ad.id}] 次數歸零！直接從本地拋棄銷毀，不做儲存與歸位寫入動作。"
             )
         } catch (e: Exception) {
-            safeLogE("LocalTtsAdDB", "❌ 歸位寫入專屬回收倉庫失敗: ${e.message}")
+            safeLogE("LocalTtsAdDB", "❌ 歸零拋棄處置失敗: ${e.message}")
         }
     }
 

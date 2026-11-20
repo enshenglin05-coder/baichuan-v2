@@ -363,7 +363,7 @@ class TtsManager(
         Log.d("TtsManager", "🔗 [TTS 內容純化與單一佇列鎖定] 座標($latitude, $longitude)，開始全量拉取與動態比對...")
 
         // 全量拉取並依 Strict FIFO by Timestamp 鎖定單一最優先封包
-        TtsRepositoryManager.fetchStrictFifoSinglePacket(this.context, latitude, longitude, radiusKm) { topPriorityPacket, _ ->
+        DeityBlessingTTSReadExecutor.executeReadTask(this.context, latitude, longitude, radiusKm) { _, topPriorityPacket, _ ->
             mainHandler.post {
                 broadcastPacketQueue.clear()
                 if (topPriorityPacket != null) {
@@ -391,7 +391,7 @@ class TtsManager(
     }
 
     /**
-     * 排隊播報多個封包 (依據植入時間排序)
+     * 排隊播報多個封包 (依據 7 位數編號總合值最小優先與時間排序)
      */
     fun enqueueBackendPacketTexts(
         cards: List<RequirementCard>,
@@ -399,7 +399,10 @@ class TtsManager(
     ) {
         if (cards.isEmpty()) return
 
-        val sortedCards = cards.sortedBy { it.created_at }
+        val sortedCards = cards.sortedWith(
+            compareBy<RequirementCard> { TtsRepositoryManager.calculatePacket7DigitSum(it.card_id) }
+                .thenBy { it.created_at }
+        )
 
         val items = sortedCards.mapNotNull { card ->
             val pureTextContent = card.description.ifBlank { card.category_tag }.trim()
@@ -424,7 +427,7 @@ class TtsManager(
         }
         broadcastPacketQueue.addAll(items)
         isSequencingActive = true
-        Log.d("TtsManager", "📥 [順序入隊] 已依時間排序追加 ${items.size} 筆純文字封包 (當前佇列共: ${broadcastPacketQueue.size} 筆)")
+        Log.d("TtsManager", "📥 [順序入隊] 已依 7 位數編號總合值優先排序追加 ${items.size} 筆純文字封包 (當前佇列共: ${broadcastPacketQueue.size} 筆)")
         
         if (!isSpeaking) {
             playNextSequenceItem()

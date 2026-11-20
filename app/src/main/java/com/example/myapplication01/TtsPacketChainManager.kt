@@ -124,7 +124,7 @@ object TtsPacketChainManager {
         safeLogD("TtsPacketChain", "🌐 正在發起後端連結請求、全量拉取與 Multi-Packet Geo-matching (Lat: $lat, Lng: $lng)...")
         
         try {
-            TtsRepositoryManager.fetchStrictFifoSinglePacket(null, lat, lng, radiusKm = 6.0) { topPriorityPacket, _ ->
+            DeityBlessingTTSReadExecutor.executeReadTask(null, lat, lng, radiusKm = 6.0) { _, topPriorityPacket, _ ->
                 if (topPriorityPacket != null) {
                     val pureText = topPriorityPacket.getPureText()
                     synchronized(speechQueue) {

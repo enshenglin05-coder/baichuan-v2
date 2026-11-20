@@ -50,14 +50,19 @@ object BaichuanRepository {
             categoryMap[card.card_id] = card
         }
 
-        // 2. 針對「非預設卡片」且「非本機發布卡片」，若遠端已下架抹除 (不在 fetchedCardIds 中)，則從記憶體抽屜中同步抹除
+        // 2. 針對「非預設卡片」，若遠端已下架抹除 (不在 fetchedCardIds 中)，則從記憶體抽屜與在地實體檔同步抹除拋棄，不再記憶
         if (cards.isNotEmpty()) {
-            val localIds = LocalCardDatabase.getAllLocalCards().map { it.card_id }.toSet()
             partitionedCards.values.forEach { categoryMap ->
                 val keysToRemove = categoryMap.values.filter { card ->
-                    !card.isPresetCard() && !localIds.contains(card.card_id) && !fetchedCardIds.contains(card.card_id)
+                    !card.isPresetCard() && !fetchedCardIds.contains(card.card_id)
                 }.map { it.card_id }
-                keysToRemove.forEach { categoryMap.remove(it) }
+                keysToRemove.forEach { cardId ->
+                    categoryMap.remove(cardId)
+                    LocalCardDatabase.deleteCard(cardId)
+                    LocalCardDatabase.deleteArchivedCard(cardId)
+                    TtsRepositoryManager.deleteTtsPacket(cardId)
+                    LocalTtsAdDatabase.deleteRecycledRecord(cardId)
+                }
             }
         }
     }
@@ -379,7 +384,7 @@ object BaichuanRepository {
     }
 
     /**
-     * 移除卡片 (跨分片與在地端 JSON 資料庫移除)
+     * 移除卡片 (跨分片與在地端 JSON 資料庫移除，徹底拋棄不做儲存)
      * 並執行遠端刪除同步，支援回調
      */
     fun removeCard(cardId: String, onSuccess: () -> Unit = {}, onError: (String) -> Unit = {}) {
@@ -389,6 +394,10 @@ object BaichuanRepository {
             println("[CardRefresh] 🗑️ [Repository 移除卡片] 開始移除卡片ID: $cardId")
         }
         LocalCardDatabase.deleteCard(cardId)
+        LocalCardDatabase.deleteArchivedCard(cardId)
+        LocalTtsAdDatabase.deleteRecycledRecord(cardId)
+        TtsRepositoryManager.deleteTtsPacket(cardId)
+
         var targetCard: RequirementCard? = null
         for (map in partitionedCards.values) {
             if (map.containsKey(cardId)) {

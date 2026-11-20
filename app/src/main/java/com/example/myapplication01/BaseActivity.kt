@@ -12,12 +12,14 @@ open class BaseActivity : AppCompatActivity() {
         GlobalTtsPlayer.init(this)
         DeityBlessingTTS.init(this)
 
-        // 實體執行：初始化零伺服器遠端倉庫目錄與防線
+        /*
+        // [已註解] App 冷啟動與生命週期初始化自動掛載寫入與同步（目前已不需要，避免背景自動產生或觸發同步寫入）
         try {
             ServerlessRepositoryInitializer.initializeRepositories(filesDir)
             AuditBlocklistManager.ensureAuditAndBlocklistRepositoryInitialized(this)
             TtsRepositoryManager.ensureTtsRepositoryInitialized(this)
         } catch (_: Throwable) {}
+        */
     }
 
     override fun startActivity(intent: Intent?) {

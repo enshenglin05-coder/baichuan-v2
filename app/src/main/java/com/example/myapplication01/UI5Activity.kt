@@ -17,19 +17,17 @@ class UI5Activity : BaseActivity() {
     private lateinit var seekBarQuantity: SeekBar
     private lateinit var tvQuantityValue: TextView
     private lateinit var switchManualOverride: SwitchMaterial
+    private lateinit var etPacketCode: TextInputEditText
     private lateinit var etLatitude: TextInputEditText
     private lateinit var etLongitude: TextInputEditText
-    // Removed seekBarDistance and tvDistanceValue
-    // private lateinit var seekBarDistance: SeekBar
-    // private lateinit var tvDistanceValue: TextView
     private lateinit var etTtsMessage: TextInputEditText
-    private lateinit var btnConfirmSettings: MaterialButton
-    private lateinit var btnTriggerManually: MaterialButton
-    private lateinit var tvConnectionStatus: TextView
-    private lateinit var btnReleaseBroadcast: MaterialButton
+    private lateinit var btnConfirmSubmit: MaterialButton
 
     private var broadcastQuantity = 100
     private var deliveryDistanceKm = 6
+
+    // 防重複觸發保護標記
+    private var isSubmitting = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -44,21 +42,33 @@ class UI5Activity : BaseActivity() {
         seekBarQuantity = findViewById(R.id.seekBarQuantity)
         tvQuantityValue = findViewById(R.id.tvQuantityValue)
         switchManualOverride = findViewById(R.id.switchManualOverride)
+        etPacketCode = findViewById(R.id.etPacketCode)
         etLatitude = findViewById(R.id.etLatitude)
         etLongitude = findViewById(R.id.etLongitude)
-        // Removed seekBarDistance and tvDistanceValue as they do not exist in the layout
         etTtsMessage = findViewById(R.id.etTtsMessage)
-        btnConfirmSettings = findViewById(R.id.btnConfirmSettings)
-        btnTriggerManually = findViewById(R.id.btnTriggerManually)
-        tvConnectionStatus = findViewById(R.id.tvConnectionStatus)
-        btnReleaseBroadcast = findViewById(R.id.btnReleaseBroadcast)
+        btnConfirmSubmit = findViewById(R.id.btnConfirmSubmit)
+
+        // 預設啟用手動覆蓋並使經緯度完全顯示且可手動修改
+        switchManualOverride.isChecked = true
+        etLatitude.isEnabled = true
+        etLongitude.isEnabled = true
 
         // Initialize progress
         seekBarQuantity.progress = 99 // 99 + 1 = 100
-        tvQuantityValue.text = "Current Value: 100"
+        tvQuantityValue.text = "目前數量: 100"
 
-        // seekBarDistance.progress = 5 // 5 + 1 = 6 km
-        // tvDistanceValue.text = "Current Value: 6 km"
+        // Wire GPS Auto Populate button if present
+        findViewById<MaterialButton>(R.id.btnGetGps)?.setOnClickListener {
+            val lat = GlobalState.globalLatitude ?: LocationFlowManager.currentLocation?.first?.toDouble()
+            val lon = GlobalState.globalLongitude ?: LocationFlowManager.currentLocation?.second?.toDouble()
+            if (lat != null && lon != null) {
+                etLatitude.setText(lat.toString())
+                etLongitude.setText(lon.toString())
+                Toast.makeText(this, "已帶入當前 GPS: $lat, $lon", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "⚠️ 無法取得當前 GPS 座標，請手動輸入", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     private fun setupListeners() {
@@ -76,78 +86,83 @@ class UI5Activity : BaseActivity() {
         })
 
         switchManualOverride.setOnCheckedChangeListener { _, isChecked ->
-            etLatitude.isEnabled = isChecked
-            etLongitude.isEnabled = isChecked
-            val stateText = if (isChecked) "手動覆蓋模式 (自訂 GPS)" else "預設 GPS 模式"
-            tvConnectionStatus.text = "連線狀態：$stateText | 已連線並同步"
-            Toast.makeText(this, stateText, Toast.LENGTH_SHORT).show()
-        }
-
-        // Removed listeners that used non-existent views
-        /*
-        seekBarDistance.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                deliveryDistanceKm = progress + 1
-                tvDistanceValue.text = "目前數值: $deliveryDistanceKm km"
+            etLatitude.isEnabled = true
+            etLongitude.isEnabled = true
+            if (isChecked) {
+                val lat = GlobalState.globalLatitude ?: LocationFlowManager.currentLocation?.first?.toDouble()
+                val lon = GlobalState.globalLongitude ?: LocationFlowManager.currentLocation?.second?.toDouble()
+                if (lat != null && lon != null) {
+                    etLatitude.setText(lat.toString())
+                    etLongitude.setText(lon.toString())
+                    Toast.makeText(this, "已獲取當前位置: $lat, $lon", Toast.LENGTH_SHORT).show()
+                }
             }
-            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
-        })
-        */
+        }
 
-        btnConfirmSettings.setOnClickListener {
-            val lat = etLatitude.text?.toString()?.trim()?.toDoubleOrNull() ?: 25.0330
-            val lon = etLongitude.text?.toString()?.trim()?.toDoubleOrNull() ?: 121.5654
-
-            if (switchManualOverride.isChecked) {
-                GlobalState.globalLatitude = lat
-                GlobalState.globalLongitude = lon
-                GlobalState.isLocated = true
+        btnConfirmSubmit.setOnClickListener {
+            if (isSubmitting) {
+                android.util.Log.w("UI5Activity", "⚠️ 正在處理送出中，忽略重複點擊")
+                return@setOnClickListener
             }
+            isSubmitting = true
+            btnConfirmSubmit.isEnabled = false
 
-            tvConnectionStatus.text = "連線狀態：設定已儲存 (數量: $broadcastQuantity, 距離: ${deliveryDistanceKm}km)"
-            Toast.makeText(this, "✅ 廣播與外送設定已成功儲存！", Toast.LENGTH_SHORT).show()
-        }
-
-        btnTriggerManually.setOnClickListener {
-            val message = etTtsMessage.text?.toString()?.trim() ?: "百川神明祝福：手動廣播與外送觸發"
-            DeityBlessingTTS.speakCustomOrCurrent(this, message)
-            tvConnectionStatus.text = "連線狀態：已手動觸發語音廣播"
-            Toast.makeText(this, "🔊 手動觸發語音廣播成功！", Toast.LENGTH_SHORT).show()
-        }
-
-        btnReleaseBroadcast.setOnClickListener {
             releaseBroadcastAndSync()
         }
     }
 
     private fun releaseBroadcastAndSync() {
-        val ttsMessage = etTtsMessage.text?.toString()?.trim() ?: "百川神明祝福：在地安心外送與即時定位服務已啟動"
-        val packetId = "broadcast_delivery_" + System.currentTimeMillis()
+        val ttsMessage = etTtsMessage.text?.toString()?.trim() ?: ""
+        val packetCode = etPacketCode.text?.toString()?.trim()?.ifBlank { "1234567" } ?: "1234567"
+        val packetId = "ui5_pkt_${packetCode}_${System.currentTimeMillis()}"
         val timestampStr = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault()).format(Date())
-        android.util.Log.d("UI5Activity", "開始打包 TTS 封包: packetId=$packetId, 數量=$broadcastQuantity, 時間=$timestampStr")
 
         if (ttsMessage.isEmpty()) {
-            android.util.Log.e("UI5Activity", "TTS 訊息內容為空")
             Toast.makeText(this, "請輸入播報訊息 (TTS)", Toast.LENGTH_SHORT).show()
+            isSubmitting = false
+            btnConfirmSubmit.isEnabled = true
             return
         }
 
-        val lat = if (switchManualOverride.isChecked) (etLatitude.text?.toString()?.toDoubleOrNull() ?: 25.0330) else (GlobalState.globalLatitude ?: 25.0330)
-        val lon = if (switchManualOverride.isChecked) (etLongitude.text?.toString()?.toDoubleOrNull() ?: 121.5654) else (GlobalState.globalLongitude ?: 121.5654)
+        // 讀取真實座標，絕不產生缺漏值或預設虛構座標
+        val lat = if (switchManualOverride.isChecked) {
+            etLatitude.text?.toString()?.toDoubleOrNull()
+        } else {
+            GlobalState.globalLatitude ?: LocationFlowManager.currentLocation?.first?.toDouble()
+        }
+        val lon = if (switchManualOverride.isChecked) {
+            etLongitude.text?.toString()?.toDoubleOrNull()
+        } else {
+            GlobalState.globalLongitude ?: LocationFlowManager.currentLocation?.second?.toDouble()
+        }
 
-        // 1. Create audit packet with full broadcast quantity quota (without premature triggerTouch decrement)
+        if (lat == null || lon == null || lat.isNaN() || lon.isNaN()) {
+            Toast.makeText(this, "❌ 無法取得有效的經緯度座標，請輸入或選擇定位", Toast.LENGTH_SHORT).show()
+            isSubmitting = false
+            btnConfirmSubmit.isEnabled = true
+            return
+        }
+
+        val distanceInput = findViewById<TextInputEditText>(R.id.etDistanceRange)?.text?.toString()?.toDoubleOrNull()
+        if (distanceInput != null && distanceInput > 0.0) {
+            deliveryDistanceKm = distanceInput.toInt()
+        }
+        val radiusKm = if (distanceInput != null && distanceInput > 0.0) distanceInput else deliveryDistanceKm.toDouble()
+
+        val geofenceParams = mapOf<String, Any>(
+            "centerLat" to lat,
+            "centerLng" to lon,
+            "radiusKm" to radiusKm
+        )
+
         val auditPacket = TtsAuditPacket(
             cardId = packetId,
-            senderId = "Broadcast_Delivery_Setup",
+            senderId = "UI5_Manual_User_Submit",
             totalQuota = broadcastQuantity,
             remainingQuota = broadcastQuantity
         )
 
         try {
-            android.util.Log.d("UI5Activity", "TTS 封包建立完成: 剩餘配額=${auditPacket.remainingQuota}, 時間=$timestampStr")
-            
-            // 2. Save and sync to local and remote repository via TtsRepositoryManager and ReligionRepository
             ReligionRepository.saveTtsPacket(auditPacket)
             
             val savedFile = TtsRepositoryManager.saveTtsPacket(
@@ -157,21 +172,27 @@ class UI5Activity : BaseActivity() {
                 context = this,
                 latitude = lat,
                 longitude = lon,
-                radiusKm = deliveryDistanceKm.toDouble(),
-                timestamp = timestampStr
+                radiusKm = radiusKm,
+                timestamp = timestampStr,
+                packetCode = packetCode,
+                formulaIdentifier = DistanceUtils.FORMULA_ID,
+                formulaVersion = DistanceUtils.FORMULA_VERSION,
+                geofenceType = "RADIAL_CIRCLE",
+                geofenceParams = geofenceParams
             )
 
             if (savedFile != null) {
-                android.util.Log.i("UI5Activity", "✅ 成功釋出廣播並同步至倉庫: ${savedFile.name} (數量: $broadcastQuantity, 緯度: $lat, 經度: $lon)")
-                Toast.makeText(this, "✅ 廣播與外送已成功釋出！已同步至倉庫。", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "✅ UI 5 手動 TTS 封包已成功送出並同步！", Toast.LENGTH_LONG).show()
                 finish()
             } else {
-                android.util.Log.e("UI5Activity", "❌ 釋出廣播失敗: 保存檔案為空")
-                Toast.makeText(this, "❌ 廣播釋出與同步失敗", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "❌ 寫入失敗", Toast.LENGTH_SHORT).show()
+                isSubmitting = false
+                btnConfirmSubmit.isEnabled = true
             }
         } catch (e: Exception) {
-            android.util.Log.e("UI5Activity", "❌ 處理 TTS 封包發生異常", e)
             Toast.makeText(this, "❌ 錯誤: ${e.message}", Toast.LENGTH_SHORT).show()
+            isSubmitting = false
+            btnConfirmSubmit.isEnabled = true
         }
     }
 }

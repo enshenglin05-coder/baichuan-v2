@@ -24,7 +24,43 @@ data class TtsAuditPacket(
     var isCompleted: Boolean = false
 ) {
 
+    /**
+     * 觸動一次 TTS 語音播報並紀錄時間戳憑證與地點資訊
+     */
+    fun triggerTouch(latitude: Double, longitude: Double, speechContent: String): Boolean {
+        if (remainingQuota <= 0 || isCompleted) {
+            isCompleted = true
+            return false
+        }
 
+        // 印出當前呼叫堆疊與來源路徑，精準追查封包來源
+        try {
+            val sourceTrace = Thread.currentThread().stackTrace
+            val callerInfo = sourceTrace.getOrNull(3)?.let { 
+                "File: ${it.fileName}, Method: ${it.methodName}, Line: ${it.lineNumber}" 
+            } ?: "Unknown Source"
+            android.util.Log.d("PacketSourceTracker", "=== 攔截到 TTS 封包觸動 ===")
+            android.util.Log.d("PacketSourceTracker", "來源路徑詳情 -> $callerInfo")
+        } catch (_: Throwable) {
+            // JVM / Standard Unit Test Fallback
+        }
+
+        remainingQuota -= 1
+        val seq = transmissionLogs.size + 1
+        val entry = TransmissionLogEntry(
+            sequence = seq,
+            timestamp = System.currentTimeMillis(),
+            latitude = latitude,
+            longitude = longitude,
+            speechContent = speechContent
+        )
+        transmissionLogs.add(entry)
+
+        if (remainingQuota <= 0) {
+            isCompleted = true
+        }
+        return true
+    }
 
     /**
      * 轉為 JSON 封包格式，直接寫入遠端倉庫的 TTS 資料夾中

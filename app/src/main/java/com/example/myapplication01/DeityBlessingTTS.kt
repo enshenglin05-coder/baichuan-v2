@@ -49,13 +49,13 @@ object DeityBlessingTTS {
         val lat = userLat ?: GlobalState.globalLatitude ?: LocationFlowManager.currentLocation?.first ?: 0.0
         val lng = userLng ?: GlobalState.globalLongitude ?: LocationFlowManager.currentLocation?.second ?: 0.0
 
-        TtsRepositoryManager.fetchStrictFifoSinglePacket(context, lat, lng, radiusKm = 6.0) { topPacket, _ ->
+        DeityBlessingTTSReadExecutor.executeReadTask(context, lat, lng, radiusKm = 6.0) { _, topPacket, _ ->
             if (topPacket != null) {
                 val card = RequirementCard(
                     card_id = topPacket.packetId,
                     description = topPacket.getPureText(),
-                    gps_lat = topPacket.latitude,
-                    gps_lng = topPacket.longitude,
+                    gps_lat = topPacket.latitude ?: 0.0,
+                    gps_lng = topPacket.longitude ?: 0.0,
                     created_at = topPacket.parseTimestampMillis()
                 )
                 enqueueBackendPacketTexts(context, listOf(card))

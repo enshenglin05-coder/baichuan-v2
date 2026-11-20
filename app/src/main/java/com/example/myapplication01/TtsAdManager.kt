@@ -92,15 +92,13 @@ object TtsAdManager {
         for (ad in ads) {
             if (ad.remainingCount <= 0 || ad.status != TTSAdStatus.ACTIVE) {
                 if (ctx != null) {
-                    LocalCardDatabase.archiveCardFile(ad.id, ctx)
-                    val record = RecycledAdRecord.fromAdModel(ad, emptyList())
-                    if (!recycledRecords.any { it.adId == ad.id }) {
-                        recycledRecords.add(record)
-                    }
-                    LocalTtsAdDatabase.archiveZeroAd(ad, record, ctx)
+                    LocalCardDatabase.deleteCard(ad.id, ctx)
+                    LocalCardDatabase.deleteArchivedCard(ad.id, ctx)
+                    LocalTtsAdDatabase.deleteRecycledRecord(ad.id, ctx)
+                    TtsRepositoryManager.deleteTtsPacket(ad.id, ctx)
                     BaichuanRepository.removeCard(ad.id)
                 }
-                safeLogD("TtsAdManager", "📦 [設定引擎歸零檢測] 發現 TTS 檔案 [${ad.id}] 倒數計時歸零 (剩餘次數: ${ad.remainingCount})，嚴格自動送回倉庫，拒絕固定播放。")
+                safeLogD("TtsAdManager", "📦 [設定引擎歸零檢測] 發現 TTS 檔案 [${ad.id}] 剩餘次數歸零，直接拋棄，不做儲存動作。")
             } else {
                 activeAdsToKeep.add(ad)
             }
@@ -122,14 +120,16 @@ object TtsAdManager {
         val ctx = context ?: appContext
         var changed = false
         for (card in cards) {
+            if (!card.isValid() || card.isExpired() || BlocklistManager.isPullBlocked(card.publisher_device_id, card.card_id)) {
+                continue
+            }
             val existing = adList.find { it.id == card.card_id }
             if (existing == null) {
-                val isArchived = if (ctx != null) {
-                    LocalCardDatabase.getArchivedCards(ctx).any { it.card_id == card.card_id } ||
-                    recycledRecords.any { it.adId == card.card_id }
+                val isDeletedOrArchived = if (ctx != null) {
+                    LocalCardDatabase.getCard(card.card_id) == null && LocalCardDatabase.getArchivedCards(ctx).any { it.card_id == card.card_id }
                 } else false
 
-                if (!isArchived) {
+                if (!isDeletedOrArchived) {
                     if (ctx != null) {
                         LocalCardDatabase.saveCard(card, ctx)
                     }
@@ -178,15 +178,13 @@ object TtsAdManager {
             if (ad.remainingCount <= 0 || ad.status != TTSAdStatus.ACTIVE) {
                 iterator.remove()
                 if (ctx != null) {
-                    LocalCardDatabase.archiveCardFile(ad.id, ctx)
-                    val record = RecycledAdRecord.fromAdModel(ad, emptyList())
-                    if (!recycledRecords.any { it.adId == ad.id }) {
-                        recycledRecords.add(record)
-                    }
-                    LocalTtsAdDatabase.archiveZeroAd(ad, record, ctx)
+                    LocalCardDatabase.deleteCard(ad.id, ctx)
+                    LocalCardDatabase.deleteArchivedCard(ad.id, ctx)
+                    LocalTtsAdDatabase.deleteRecycledRecord(ad.id, ctx)
+                    TtsRepositoryManager.deleteTtsPacket(ad.id, ctx)
                     BaichuanRepository.removeCard(ad.id)
                 }
-                safeLogD("TtsAdManager", "📦 [尋找可播放廣告檢測] 發現 TTS 檔案 [${ad.id}] 倒數計時歸零，嚴格送回倉庫，拒絕固定播放。")
+                safeLogD("TtsAdManager", "📦 [尋找可播放廣告檢測] 發現 TTS 檔案 [${ad.id}] 倒數計時歸零，直接拋棄，不做儲存動作。")
             }
         }
 
@@ -235,17 +233,16 @@ object TtsAdManager {
                 // 強制中斷續撥：計數歸零時絕對禁止觸發續撥，清空並停止整個播放佇列
                 TtsPacketChainManager.stopChain()
 
-                // 歸零自動搬運（歸位封存）：
+                // 歸零直接拋棄（不做儲存動作）：
                 // 1. 從主佇列 (adList) 移除
                 adList.removeAt(index)
                 LocalTtsAdDatabase.saveAds(adList, ctx)
 
-                // 2. 生成回收紀錄並搬移推送到專屬回收倉庫 (archived_warehouse & archived_cards)
-                archiveRecord = RecycledAdRecord.fromAdModel(updatedAd, logs.toList())
-                recycledRecords.add(archiveRecord)
-
-                LocalTtsAdDatabase.archiveZeroAd(updatedAd, archiveRecord, ctx)
-                LocalCardDatabase.archiveCardFile(adId, ctx)
+                // 2. 清理本地端實體檔案與資料庫，不做儲存動作，避免幹擾
+                LocalCardDatabase.deleteCard(adId, ctx)
+                LocalCardDatabase.deleteArchivedCard(adId, ctx)
+                LocalTtsAdDatabase.deleteRecycledRecord(adId, ctx)
+                TtsRepositoryManager.deleteTtsPacket(adId, ctx)
 
                 // 3. 從記憶體倉儲移除
                 BaichuanRepository.removeCard(adId)
@@ -259,10 +256,10 @@ object TtsAdManager {
                     totalCount = updatedAd.totalCount
                 )
 
-                // 5. 觸發專屬 TTS 倉庫背景非同步歸檔 (Move to /tts_repository_folder/archived/)
+                // 5. 觸發專屬 TTS 倉庫背景非同步處理 (刪除活躍檔並推回後端取消)
                 TtsRepositoryManager.zeroOutAndArchiveAsync(adId, ctx)
 
-                safeLogD("TtsAdManager", "📦 [單筆播畢歸零/背景歸檔/歸位封存] 廣告 [$adId] 播放次數已歸零！已推回歸檔區並寫回遠端 GitHub (ArchiveID: ${archiveRecord.archiveId})")
+                safeLogD("TtsAdManager", "📦 [單筆播畢歸零/直接拋棄/不做儲存] 廣告 [$adId] 播放次數已歸零！直接從本地拋棄，推回後端倉庫取消。")
             } else {
                 adList[index] = updatedAd
                 LocalTtsAdDatabase.saveAds(adList, ctx)

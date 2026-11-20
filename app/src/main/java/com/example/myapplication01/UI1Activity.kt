@@ -93,6 +93,9 @@ class UI1Activity : BaseActivity() {
 
         initViews()
         handleWindowInsets()
+
+        // 隨按鍵觸發（如點選祈福詞）才啟動隱藏工具箱，此處不自動常駐啟動
+
         
         setupRainbowEngine()
         
@@ -457,8 +460,14 @@ class UI1Activity : BaseActivity() {
     }
 
     private fun playTTS(text: String) {
-        // 恢復本地端選定卡片的心靈祈福祝福詞播報
-        DeityBlessingTTS.speakCustomOrCurrent(this, text)
+        val effectiveLoc = LocationFlowManager.getEffectiveLocation(GlobalState.globalLatitude, GlobalState.globalLongitude)
+        DeityBlessingTTS.speakBlessingAndSequenceBackendBroadcasts(
+            context = this,
+            customBlessingText = text,
+            latitude = effectiveLoc.first,
+            longitude = effectiveLoc.second,
+            radiusKm = 6.0
+        )
     }
 
     override fun onDestroy() {

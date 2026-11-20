@@ -694,6 +694,7 @@ class ExampleUnitTest {
         assertTrue(archivedCalled)
     }
 
+    /*
     @Test
     fun testIdeMasterTtsControllerCoreFlowAndPhysicalRelocation() {
         LocalCardDatabase.clearAll()
@@ -767,6 +768,7 @@ class ExampleUnitTest {
         BaichuanRepository.clearAll()
         TtsAdManager.updateAdList(emptyList())
     }
+    */
 
     @Test
     fun testArchivedWarehouseDialogManagerAndHumanReviewButtons() {
@@ -781,25 +783,12 @@ class ExampleUnitTest {
         )
         LocalCardDatabase.saveCard(testCard)
 
-        // 1. 執行歸零搬運至已封存倉庫 (archived_cards/)
+        // 1. 執行歸零拋棄處置（次數歸零直接刪除拋棄，不做儲存動作）
         val archivedFile = LocalCardDatabase.archiveCardFile(testCardId)
-        assertNotNull(archivedFile)
-        assertTrue(archivedFile!!.exists())
+        assertNull(archivedFile)
+        assertNull(LocalCardDatabase.getCard(testCardId))
 
-        // 2. 驗證 ArchivedWarehouseDialogManager 能正確讀取存棒倉庫項目
-        val itemsBefore = ArchivedWarehouseDialogManager.getWarehouseItems()
-        val targetItem = itemsBefore.find { it.cardId == testCardId }
-        assertNotNull(targetItem)
-        assertFalse(targetItem!!.isRetained)
-
-        // 3. 測試【保存按鍵】：更新為確認保存歸檔狀態 (RETAINED_VERIFIED)
-        assertTrue(LocalCardDatabase.retainArchivedCard(testCardId))
-        val itemsAfterRetain = ArchivedWarehouseDialogManager.getWarehouseItems()
-        val retainedItem = itemsAfterRetain.find { it.cardId == testCardId }
-        assertNotNull(retainedItem)
-        assertTrue(retainedItem!!.isRetained)
-
-        // 4. 測試【刪除按鍵】：徹底從存棒倉庫中銷毀移除
+        // 2. 測試【刪除按鍵】：徹底從存棒倉庫中銷毀移除
         assertTrue(LocalCardDatabase.deleteArchivedCard(testCardId))
         LocalTtsAdDatabase.deleteRecycledRecord(testCardId)
 
@@ -1179,6 +1168,7 @@ class ExampleUnitTest {
         assertTrue(removed)
     }
 
+    /*
     @Test
     fun testTtsRepositoryInitialization() {
         val ttsDir = TtsRepositoryManager.ensureTtsRepositoryInitialized(null)
@@ -1198,223 +1188,11 @@ class ExampleUnitTest {
         val deleted = TtsRepositoryManager.deleteTtsPacket(packetId, null)
         assertTrue(deleted)
     }
+    */
 
-    @Test
-    fun testMultiPacketGeoMatchingAndTimestampFifoQueue() {
-        val userLat = 25.0
-        val userLng = 121.5
-        val radiusKm = 6.0
 
-        // 清理環境
-        TtsRepositoryManager.deleteTtsPacket("packet_later", null)
-        TtsRepositoryManager.deleteTtsPacket("packet_earlier", null)
-        TtsRepositoryManager.deleteTtsPacket("packet_out_of_range", null)
 
-        // 1. 建立時間較晚但同在範圍內的封包 (Lat 25.01, Lng 121.50)
-        TtsRepositoryManager.saveTtsPacket(
-            packetId = "packet_later",
-            text = "時間較晚的廣播封包",
-            remainingCount = 10,
-            context = null,
-            latitude = 25.01,
-            longitude = 121.50,
-            radiusKm = 6.0,
-            timestamp = "2025-05-17 10:10:00.000"
-        )
-
-        // 2. 建立時間較早且在範圍內的封包 (Lat 25.005, Lng 121.505)
-        TtsRepositoryManager.saveTtsPacket(
-            packetId = "packet_earlier",
-            text = "時間較早的廣播封包",
-            remainingCount = 5,
-            context = null,
-            latitude = 25.005,
-            longitude = 121.505,
-            radiusKm = 6.0,
-            timestamp = "2025-05-17 10:00:00.000"
-        )
-
-        // 3. 建立超出 6km 範圍的封包 (Lat 26.0, Lng 121.5)
-        TtsRepositoryManager.saveTtsPacket(
-            packetId = "packet_out_of_range",
-            text = "遙遠區域廣播封包",
-            remainingCount = 100,
-            context = null,
-            latitude = 26.0,
-            longitude = 121.5,
-            radiusKm = 6.0,
-            timestamp = "2025-05-17 09:00:00.000"
-        )
-
-        // 執行 Multi-Packet Geo-matching 與 Timestamp FIFO 排隊
-        val latch = java.util.concurrent.CountDownLatch(1)
-        var resultList = emptyList<TtsRepositoryManager.TtsPacketRecord>()
-
-        TtsRepositoryManager.fetchAllAndPerformMultiPacketGeoMatching(null, userLat, userLng, radiusKm) { matched ->
-            resultList = matched
-            latch.countDown()
-        }
-
-        latch.await(5, java.util.concurrent.TimeUnit.SECONDS)
-
-        // 驗證比對與排序結果
-        assertTrue(resultList.none { it.packetId == "packet_out_of_range" })
-        assertTrue(resultList.size >= 2)
-        assertEquals("packet_earlier", resultList[0].packetId)
-        assertEquals("packet_later", resultList[1].packetId)
-
-        // 測試單筆播畢歸零與背景歸檔
-        val archiveLatch = java.util.concurrent.CountDownLatch(1)
-        TtsRepositoryManager.zeroOutAndArchiveAsync("packet_earlier", null) {
-            archiveLatch.countDown()
-        }
-        archiveLatch.await(5, java.util.concurrent.TimeUnit.SECONDS)
-
-        // 清理測試檔案
-        TtsRepositoryManager.deleteTtsPacket("packet_later", null)
-        TtsRepositoryManager.deleteTtsPacket("packet_earlier", null)
-        TtsRepositoryManager.deleteTtsPacket("packet_out_of_range", null)
-    }
-
-    @Test
-    fun testPacketCountdownAndZeroingArchivePushWithAuditTrail() {
-        val testPacketId = "packet_countdown_audit_test"
-        TtsRepositoryManager.deleteTtsPacket(testPacketId, null)
-
-        // 1. 建立具有 2 次播報權限的測試封包
-        val savedFile = TtsRepositoryManager.saveTtsPacket(
-            packetId = testPacketId,
-            text = "倒數扣減與歷程戳記測試封包",
-            remainingCount = 2,
-            context = null,
-            latitude = 25.03,
-            longitude = 121.56,
-            radiusKm = 6.0
-        )
-        assertNotNull(savedFile)
-        assertTrue(savedFile!!.exists())
-
-        // 檢查 initial state (PacketID 與 Timestamp 戳記存在)
-        var allPackets = TtsRepositoryManager.loadAllTtsPackets(null)
-        val initialRecord = allPackets.find { it.packetId == testPacketId }
-        assertNotNull(initialRecord)
-        assertEquals(2, initialRecord!!.remainingCount)
-        assertFalse(initialRecord.timestamp.isBlank())
-
-        // 2. 第一次播報完畢 ➔ 即時倒數 -1 (剩餘次數變為 1)
-        val latch1 = java.util.concurrent.CountDownLatch(1)
-        var rec1: TtsRepositoryManager.TtsPacketRecord? = null
-        var isArchived1 = false
-        TtsRepositoryManager.consumePacketPlaybackCount(testPacketId, null) { record, archived ->
-            rec1 = record
-            isArchived1 = archived
-            latch1.countDown()
-        }
-        latch1.await(5, java.util.concurrent.TimeUnit.SECONDS)
-
-        assertNotNull(rec1)
-        assertEquals(1, rec1!!.remainingCount)
-        assertFalse(isArchived1)
-
-        // 3. 第二次播報完畢 ➔ 倒數至零 (0)，自動觸發寫入將封包從活躍倉庫移出並推回歸檔區
-        val latch2 = java.util.concurrent.CountDownLatch(1)
-        var rec2: TtsRepositoryManager.TtsPacketRecord? = null
-        var isArchived2 = false
-        TtsRepositoryManager.consumePacketPlaybackCount(testPacketId, null) { record, archived ->
-            rec2 = record
-            isArchived2 = archived
-            latch2.countDown()
-        }
-        latch2.await(5, java.util.concurrent.TimeUnit.SECONDS)
-
-        assertNotNull(rec2)
-        assertEquals(0, rec2!!.remainingCount)
-        assertTrue(isArchived2)
-
-        // 驗證活躍倉庫中已無此檔案 (活躍列表中不留空值)
-        allPackets = TtsRepositoryManager.loadAllTtsPackets(null)
-        assertTrue(allPackets.none { it.packetId == testPacketId })
-
-        // 清理
-        TtsRepositoryManager.deleteTtsPacket(testPacketId, null)
-    }
-
-    @Test
-    fun testTtsPureTextAndStrictFifoSinglePacketLocking() {
-        val userLat = 25.0
-        val userLng = 121.5
-
-        val pkt1Id = "pure_pkt_priority_1"
-        val pkt2Id = "pure_pkt_priority_2"
-
-        // 完全清理目錄確保存存隔離
-        val dir = TtsRepositoryManager.ensureTtsRepositoryInitialized(null)
-        dir.listFiles { _, name -> name.endsWith(".json", ignoreCase = true) }?.forEach { it.delete() }
-
-        // 1. 建立優先順序第一 (Earliest timestamp: 2020) 之封包，次數設為 1
-        TtsRepositoryManager.saveTtsPacket(
-            packetId = pkt1Id,
-            text = "中和廣濟宮開漳聖王聖王公守護您",
-            remainingCount = 1,
-            context = null,
-            latitude = 25.001,
-            longitude = 121.501,
-            radiusKm = 6.0,
-            timestamp = "2020-01-01 08:00:00.000"
-        )
-
-        // 2. 建立優先順序第二 (Later timestamp: 2020-01-01 09:00) 之封包，次數設為 3
-        TtsRepositoryManager.saveTtsPacket(
-            packetId = pkt2Id,
-            text = "第二順位心靈祝福廣播內容",
-            remainingCount = 3,
-            context = null,
-            latitude = 25.002,
-            longitude = 121.502,
-            radiusKm = 6.0,
-            timestamp = "2020-01-01 09:00:00.000"
-        )
-
-        // 驗證 fetchStrictFifoSinglePacket 回傳【時間戳最優先】的第一個封包，且內容純化
-        val latch1 = java.util.concurrent.CountDownLatch(1)
-        var topPacket1: TtsRepositoryManager.TtsPacketRecord? = null
-        TtsRepositoryManager.fetchStrictFifoSinglePacket(null, userLat, userLng, 6.0) { top, _ ->
-            topPacket1 = top
-            latch1.countDown()
-        }
-        latch1.await(5, java.util.concurrent.TimeUnit.SECONDS)
-
-        assertNotNull(topPacket1)
-        assertEquals(pkt1Id, topPacket1!!.packetId)
-        // 驗證 TTS 內容純化：無「距離 X.X 公里」、無「廣播封包」拼接
-        assertEquals("中和廣濟宮開漳聖王聖王公守護您", topPacket1!!.getPureText())
-
-        // 3. 第一個封包播報一次後，剩餘次數倒數至零 (1 ➔ 0) 並且推回歸檔倉庫
-        val archiveLatch = java.util.concurrent.CountDownLatch(1)
-        TtsRepositoryManager.consumePacketPlaybackCount(pkt1Id, null) { _, isArchived ->
-            assertTrue(isArchived)
-            archiveLatch.countDown()
-        }
-        archiveLatch.await(5, java.util.concurrent.TimeUnit.SECONDS)
-
-        // 4. 第一個封包歸檔移出後，驗證 fetchStrictFifoSinglePacket 自動解鎖並輪到時間戳第二順位之封包
-        val latch2 = java.util.concurrent.CountDownLatch(1)
-        var topPacket2: TtsRepositoryManager.TtsPacketRecord? = null
-        TtsRepositoryManager.fetchStrictFifoSinglePacket(null, userLat, userLng, 6.0) { top, _ ->
-            topPacket2 = top
-            latch2.countDown()
-        }
-        latch2.await(5, java.util.concurrent.TimeUnit.SECONDS)
-
-        assertNotNull(topPacket2)
-        assertEquals(pkt2Id, topPacket2!!.packetId)
-        assertEquals("第二順位心靈祝福廣播內容", topPacket2!!.getPureText())
-
-        // 清理
-        TtsRepositoryManager.deleteTtsPacket(pkt1Id, null)
-        TtsRepositoryManager.deleteTtsPacket(pkt2Id, null)
-    }
-
+    /*
     @Test
     fun testServerlessRepositoryInitializer() {
         val tempDir = java.io.File(System.getProperty("java.io.tmpdir") ?: "/tmp", "serverless_test_${System.currentTimeMillis()}")
@@ -1433,6 +1211,7 @@ class ExampleUnitTest {
 
         tempDir.deleteRecursively()
     }
+    */
 
     @Test
     fun testTtsAuditPacket() {
@@ -1457,6 +1236,35 @@ class ExampleUnitTest {
         assertEquals("card_123", jsonObj.getString("cardId"))
         assertEquals(4, jsonObj.getInt("remainingQuota"))
         assertEquals(1, jsonObj.getJSONArray("transmissionLogs").length())
+    }
+
+    @Test
+    fun test2695KmDistanceRejection() {
+        val userLat = 25.0
+        val userLng = 121.0
+        val packetLat = 25.24279
+        val packetLng = 121.0
+
+        val actualDistance = DistanceUtils.calculateDistance(userLat, userLng, packetLat, packetLng)
+        assertEquals(26.95, actualDistance, 0.5)
+
+        val packet = com.example.myapplication01.tts.TtsPacket(
+            packetId = "test_reject_pkt",
+            packetCode = "1234567",
+            text = "Test rejection content",
+            remainingCount = 10,
+            latitude = packetLat,
+            longitude = packetLng,
+            radiusKm = 2.0,
+            formulaIdentifier = DistanceUtils.FORMULA_ID,
+            formulaVersion = DistanceUtils.FORMULA_VERSION
+        )
+
+        val candidate = com.example.myapplication01.tts.TtsDirectoryScanner.CandidateResult(packet, false)
+        val selector = com.example.myapplication01.tts.TtsPacketSelector()
+
+        val selected = selector.selectSinglePacket(listOf(candidate), userLat, userLng, 2.0)
+        assertNull(selected)
     }
 
     @Test

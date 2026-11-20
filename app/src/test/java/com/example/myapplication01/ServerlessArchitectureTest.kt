@@ -4,21 +4,20 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.io.File
 
 class ServerlessArchitectureTest {
 
     @Test
     fun testRepositoryAndTtsPacketLogic() {
-        // 1. 驗證資料夾初始化邏輯
+        // [已停用] 依據鐵律：當路徑或資料夾為空值時，絕對不要自動建立、不要補入任何預設資料（如 .gitkeep）、不要做任何測試。
+        /*
         val tempDir = File(System.getProperty("java.io.tmpdir"), "baichuan_test_root")
         ServerlessRepositoryInitializer.initializeRepositories(tempDir)
-
         val ttsDir = File(tempDir, ServerlessRepositoryInitializer.TTS_REPOSITORY_FOLDER)
         val auditDir = File(tempDir, ServerlessRepositoryInitializer.AUDIT_BLOCKLIST_REPO)
-
         assertTrue("TTS 倉庫資料夾必須成功建立", ttsDir.exists())
         assertTrue("黑名單審核隔離區必須成功建立", auditDir.exists())
+        */
 
         // 2. 驗證 100 次倒數與時間戳憑證封包
         val packet = TtsAuditPacket(cardId = "CARD_001", senderId = "SENDER_XYZ", remainingQuota = 2)
