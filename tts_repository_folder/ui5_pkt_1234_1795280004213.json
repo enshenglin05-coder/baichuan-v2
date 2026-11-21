@@ -1,0 +1,19 @@
+{
+  "formulaIdentifier": "HAVERSINE_SPHERICAL",
+  "formulaVersion": "1.0.0",
+  "geofenceParams": {
+    "centerLat": 25.0024843,
+    "centerLng": 121.4977575,
+    "radiusKm": 63.0
+  },
+  "geofenceType": "RADIAL_CIRCLE",
+  "isArchived": false,
+  "latitude": 25.0024843,
+  "longitude": 121.4977575,
+  "packetCode": "1234",
+  "packetId": "ui5_pkt_1234_1795280004213",
+  "radiusKm": 63.0,
+  "remainingCount": 100,
+  "text": "麥    麥。  我完成了市面上唯一區域觸發設定的TTS語音播報系統就是跟Google導行區域觸發一樣",
+  "timestamp": "2026-11-22 00:53:24.214"
+}
