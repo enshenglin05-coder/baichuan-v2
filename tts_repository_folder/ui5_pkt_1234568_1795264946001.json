@@ -1,0 +1,19 @@
+{
+  "formulaIdentifier": "HAVERSINE_SPHERICAL",
+  "formulaVersion": "1.0.0",
+  "geofenceParams": {
+    "centerLat": 25.0025937,
+    "centerLng": 121.4977117,
+    "radiusKm": 2.0
+  },
+  "geofenceType": "RADIAL_CIRCLE",
+  "isArchived": false,
+  "latitude": 25.0025937,
+  "longitude": 121.4977117,
+  "packetCode": "1234568",
+  "packetId": "ui5_pkt_1234568_1795264946001",
+  "radiusKm": 2.0,
+  "remainingCount": 100,
+  "text": "麥  麥  我完成了市面上唯一的係統",
+  "timestamp": "2026-11-21 20:42:26.001"
+}
