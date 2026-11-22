@@ -1,0 +1,19 @@
+{
+  "formulaIdentifier": "HAVERSINE_SPHERICAL",
+  "formulaVersion": "1.0.0",
+  "geofenceParams": {
+    "centerLat": 25.0024761,
+    "centerLng": 121.4976757,
+    "radiusKm": 3.0
+  },
+  "geofenceType": "RADIAL_CIRCLE",
+  "isArchived": false,
+  "latitude": 25.0024761,
+  "longitude": 121.4976757,
+  "packetCode": "1234567",
+  "packetId": "ui5_pkt_1234567_1795308890189",
+  "radiusKm": 3.0,
+  "remainingCount": 100,
+  "text": "麥   麥  我完成了市面上唯一像導行一樣區域控制撥放的  TTS語音系統  就是可以輸入位置以及撥報範圍觸發輸入設定播報內容",
+  "timestamp": "2026-11-22 08:54:50.189"
+}
