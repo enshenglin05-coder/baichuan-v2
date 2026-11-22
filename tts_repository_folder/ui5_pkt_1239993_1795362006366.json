@@ -1,0 +1,19 @@
+{
+  "formulaIdentifier": "HAVERSINE_SPHERICAL",
+  "formulaVersion": "1.0.0",
+  "geofenceParams": {
+    "centerLat": 24.9846817,
+    "centerLng": 121.4185732,
+    "radiusKm": 2.0
+  },
+  "geofenceType": "RADIAL_CIRCLE",
+  "isArchived": false,
+  "latitude": 24.9846817,
+  "longitude": 121.4185732,
+  "packetCode": "1239993",
+  "packetId": "ui5_pkt_1239993_1795362006366",
+  "radiusKm": 2.0,
+  "remainingCount": 100,
+  "text": "沛  于 謝謝妳 沒有妳 我無法完成這套係統",
+  "timestamp": "2026-11-22 23:40:06.367"
+}
