@@ -1,0 +1,19 @@
+{
+  "formulaIdentifier": "HAVERSINE_SPHERICAL",
+  "formulaVersion": "1.0.0",
+  "geofenceParams": {
+    "centerLat": 25.0025265,
+    "centerLng": 121.4930602,
+    "radiusKm": 2.0
+  },
+  "geofenceType": "RADIAL_CIRCLE",
+  "isArchived": false,
+  "latitude": 25.0025265,
+  "longitude": 121.4930602,
+  "packetCode": "1220000",
+  "packetId": "ui5_pkt_1220000_1795324536330",
+  "radiusKm": 2.0,
+  "remainingCount": 100,
+  "text": "中和中山路二段350號遠建不動產專營廠辦租售",
+  "timestamp": "2026-11-22 13:15:36.330"
+}
