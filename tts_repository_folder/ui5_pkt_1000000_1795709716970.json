@@ -1,0 +1,19 @@
+{
+  "formulaIdentifier": "HAVERSINE_SPHERICAL",
+  "formulaVersion": "1.0.0",
+  "geofenceParams": {
+    "centerLat": 24.9723876,
+    "centerLng": 121.4994152,
+    "radiusKm": 2.0
+  },
+  "geofenceType": "RADIAL_CIRCLE",
+  "isArchived": false,
+  "latitude": 24.9723876,
+  "longitude": 121.4994152,
+  "packetCode": "1000000",
+  "packetId": "ui5_pkt_1000000_1795709716970",
+  "radiusKm": 2.0,
+  "remainingCount": 100,
+  "text": "烘 爐 地  土 地 公 福 德正 神 福 氣 送給您",
+  "timestamp": "2026-11-27 00:15:16.970"
+}
